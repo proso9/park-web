@@ -4,7 +4,9 @@
 
 ## 这是什么
 
-Vue 3 + Vite + Tailwind CSS 4 的前端。当前阶段只有**视觉语言**（配色、字体层级、渐变、圆角、阴影、表面材质），没有业务页面、侧栏、卡片墙、图表。
+Vue 3 + Vite + Tailwind CSS 4 的前端。现代、极简、温暖、高级的 SaaS。左侧窄轨导航，占位业务页面。
+
+原始阶段只有**视觉语言**（配色、字体层级、渐变、圆角、阴影、表面材质）。
 
 氛围：现代、极简、温暖、高级的 SaaS。奶油底、桃色光晕、深棕墨色、大面积留白。
 
@@ -45,13 +47,16 @@ src/
   theme/tokens.ts          # 标本页用的色板/圆角/阴影数据，hex 必须与 CSS 同步
   components/
     AppAtmosphere.vue      # 页面级奶油底 + 三团模糊光晕
+    AppShell.vue           # 骨架：左栏 + 主区，只渲染一次 RouterView
+    AppSidebar.vue         # 左轨导航：logo 占位 + 4 个 RouterLink，数据驱动
     ui/
       AppSurface.vue       # 玻璃表面（glass / strong / ghost）
       StatusDot.vue        # 低饱和状态圆点
       TrendMark.vue        # 趋势箭头与颜色
       index.ts             # 统一导出
-  views/StyleGuide.vue     # `/` 抽象视觉标本，不是产品页
-  App.vue                  # 包一层 AppAtmosphere + RouterView
+  views/StyleGuide.vue     # `/style-guide` 抽象视觉标本，不是产品页
+  views/*Page.vue          # 占位页：Overview / Details / Approval / Settings
+  App.vue                  # 只包一层 AppAtmosphere，内置 AppShell
   router/index.ts
   stores/
   main.ts                  # 必须 import './assets/main.css'
@@ -59,6 +64,8 @@ index.html                 # 引入 Plus Jakarta Sans
 ```
 
 新增页面：`src/views/` + 在 `router/index.ts` 注册。新增可复用 UI：`src/components/ui/`，从 `index.ts` 导出。
+
+页面渲染：`App.vue` 只在最外层包一次 `AppAtmosphere`，`AppShell` 里放 `AppSidebar` + `RouterView`。页面内不要再套 `AppAtmosphere`，否则光晕叠两层。侧栏是窄轨（`w-20`）+ 垂直居中的 icon+中文，不改成传统宽文字菜单。
 
 ## 视觉语言（必须遵守）
 
@@ -128,7 +135,7 @@ index.html                 # 引入 Plus Jakarta Sans
 - 一律 `<script setup lang="ts">`。props 用 `defineProps` + `withDefaults`。
 - UI 从 `@/components/ui` 导入，不要深层相对路径乱穿。
 - `App.vue` 已经包了 `AppAtmosphere`。页面里不要再套一层，除非明确关掉光晕（`orbs={false}`）。
-- 不要为了「完整后台」去造侧栏、顶栏、图表、时间轴。用户要产品布局时再做，且必须吃这套 token。
+- 不要为了「完整后台」去造顶栏、图表、时间轴、卡片墙。侧栏已有（`AppShell` / `AppSidebar`），别随意把它改成宽文字菜单或加底部头像。
 
 ## Tailwind 4 注意
 

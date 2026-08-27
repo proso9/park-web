@@ -110,7 +110,8 @@ const typeRamp = [
         <header class="space-y-2">
           <h2 class="text-heading font-semibold text-ink">渐变与光晕</h2>
           <p class="text-caption text-ink-muted">
-            强调色走 accent → accent-soft 的线性渐变。页面级光晕是大面积、高模糊的抽象色块，不是装饰插画。
+            强调色走 accent → accent-soft
+            的线性渐变。页面级光晕是大面积、高模糊的抽象色块，不是装饰插画。
           </p>
         </header>
         <div class="space-y-6">

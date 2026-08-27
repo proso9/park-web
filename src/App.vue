@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { RouterView } from 'vue-router'
 import AppAtmosphere from '@/components/AppAtmosphere.vue'
+import AppShell from '@/components/AppShell.vue'
 </script>
 
 <template>
   <AppAtmosphere>
-    <RouterView />
+    <AppShell />
   </AppAtmosphere>
 </template>
