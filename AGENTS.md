@@ -14,16 +14,16 @@ Vue 3 + Vite + Tailwind CSS 4 的前端。现代、极简、温暖、高级的 S
 
 ## 技术栈
 
-| 层 | 选型 | 注意 |
-|---|---|---|
-| 框架 | Vue 3.5 `<script setup lang="ts">` | 不要 Options API，不要 JSX |
-| 路由 | vue-router 5 | `createWebHistory` |
-| 状态 | Pinia 4 | 现成 `src/stores/counter.ts` 是模板残留，新 store 按需建 |
-| 样式 | Tailwind CSS **4**（`@tailwindcss/vite`） | **没有** `tailwind.config.js`。token 写在 CSS `@theme` |
-| 构建 | Vite 8 | 路径别名 `@` → `src/` |
-| 语言 | TypeScript 6，`noUncheckedIndexedAccess` | 数组/对象取值按可能 `undefined` 处理 |
-| 格式化 | oxfmt | 无分号、单引号（`.oxfmtrc.json`） |
-| Lint | oxlint + eslint（含 `vue/multi-word-component-names`） | 组件文件名必须多词 |
+| 层    | 选型                                                  | 注意                                                |
+| ---- | --------------------------------------------------- | ------------------------------------------------- |
+| 框架   | Vue 3.5 `<script setup lang="ts">`                  | 不要 Options API，不要 JSX                             |
+| 路由   | vue-router 5                                        | `createWebHistory`                                |
+| 状态   | Pinia 4                                             | 现成 `src/stores/counter.ts` 是模板残留，新 store 按需建      |
+| 样式   | Tailwind CSS **4**（`@tailwindcss/vite`）             | **没有** `tailwind.config.js`。token 写在 CSS `@theme` |
+| 构建   | Vite 8                                              | 路径别名 `@` → `src/`                                 |
+| 语言   | TypeScript 6，`noUncheckedIndexedAccess`             | 数组/对象取值按可能 `undefined` 处理                         |
+| 格式化  | oxfmt                                               | 无分号、单引号（`.oxfmtrc.json`）                          |
+| Lint | oxlint + eslint（含 `vue/multi-word-component-names`） | 组件文件名必须多词                                         |
 
 Node：`^22.18.0 || >=24.12.0`。包管理：npm。
 
@@ -75,27 +75,27 @@ index.html                 # 引入 Plus Jakarta Sans
 
 不要用 Tailwind 默认的 `gray-*`、`black`、`orange-500` 当品牌色。用下面这套：
 
-| Token | Hex | 用途 |
-|---|---|---|
-| `canvas` | `#F5EFE6` | 页面底 |
-| `canvas-deep` | `#EDE4D6` | 略沉的奶油 |
-| `foam` | `#FFFBF7` | 表面色素（再和透明做 mix） |
-| `accent-mist` | `#F8E0D4` | 淡桃衬底、chip 底 |
-| `ink` | `#2C241C` | 主文案。**禁止纯黑** |
-| `ink-soft` | `#5E534A` | 次级 |
-| `ink-muted` | `#9A8B7C` | 辅助说明 |
-| `ink-faint` | `#C4B5A5` | 占位 / 禁用 |
-| `accent` | `#FF8C6B` | 主强调 |
-| `accent-soft` | `#FFAA85` | 渐变末端 |
-| `accent-deep` | `#E56B4A` | 强调底上的字、上升趋势 |
-| `accent-muted` | `#E8A090` | 大面积填充（柱、块） |
-| `trend-up` | `#E56B4A` | 上升 |
-| `trend-down` | `#6B9B7A` | **有利**下降（耗时变短等） |
-| `trend-neutral` | `#9A8B7C` | 持平 |
-| `status-ok` | `#7A9E82` | 正常 |
-| `status-warn` | `#D4926A` | 注意 |
-| `status-idle` | `#C4B5A5` | 空闲 |
-| `status-alert` | `#C97B6A` | 告警 |
+| Token           | Hex       | 用途              |
+| --------------- | --------- | --------------- |
+| `canvas`        | `#F5EFE6` | 页面底             |
+| `canvas-deep`   | `#EDE4D6` | 略沉的奶油           |
+| `foam`          | `#FFFBF7` | 表面色素（再和透明做 mix） |
+| `accent-mist`   | `#F8E0D4` | 淡桃衬底、chip 底     |
+| `ink`           | `#2C241C` | 主文案。**禁止纯黑**    |
+| `ink-soft`      | `#5E534A` | 次级              |
+| `ink-muted`     | `#9A8B7C` | 辅助说明            |
+| `ink-faint`     | `#C4B5A5` | 占位 / 禁用         |
+| `accent`        | `#FF8C6B` | 主强调             |
+| `accent-soft`   | `#FFAA85` | 渐变末端            |
+| `accent-deep`   | `#E56B4A` | 强调底上的字、上升趋势     |
+| `accent-muted`  | `#E8A090` | 大面积填充（柱、块）      |
+| `trend-up`      | `#E56B4A` | 上升              |
+| `trend-down`    | `#6B9B7A` | **有利**下降（耗时变短等） |
+| `trend-neutral` | `#9A8B7C` | 持平              |
+| `status-ok`     | `#7A9E82` | 正常              |
+| `status-warn`   | `#D4926A` | 注意              |
+| `status-idle`   | `#C4B5A5` | 空闲              |
+| `status-alert`  | `#C97B6A` | 告警              |
 
 状态色饱和度要低，不要用鲜绿 / 鲜红。
 
@@ -105,14 +105,14 @@ index.html                 # 引入 Plus Jakarta Sans
 
 字体：Plus Jakarta Sans（`index.html` Google Fonts，`@theme --font-sans`）。
 
-| 类 | 角色 | 典型组合 |
-|---|---|---|
+| 类              | 角色   | 典型组合                                                    |
+| -------------- | ---- | ------------------------------------------------------- |
 | `text-display` | 核心数据 | `font-extrabold tracking-display nums-tabular text-ink` |
-| `text-title` | 页面标题 | `font-bold text-ink` |
-| `text-heading` | 区块标题 | `font-semibold text-ink` |
-| `text-body` | 正文 | `text-ink-soft` |
-| `text-caption` | 辅助 | `text-ink-muted` |
-| `text-micro` | 元信息 | `text-ink-faint` |
+| `text-title`   | 页面标题 | `font-bold text-ink`                                    |
+| `text-heading` | 区块标题 | `font-semibold text-ink`                                |
+| `text-body`    | 正文   | `text-ink-soft`                                         |
+| `text-caption` | 辅助   | `text-ink-muted`                                        |
+| `text-micro`   | 元信息  | `text-ink-faint`                                        |
 
 对比要够：数据极大极粗，说明极小极淡。强调词可用 `text-accent-gradient`。
 
@@ -165,3 +165,4 @@ index.html                 # 引入 Plus Jakarta Sans
 3. 标本页能看到变化（`/`）。
 4. `npx vue-tsc --build && npx vite build` 通过。
 5. 抽查产物 CSS：自定义 token 在、`backdrop-filter` 无前缀形式还在、没有误扫进的工具类。
+

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, reactive } from 'vue'
 import { useParkStore } from '@/stores/park'
 import { AppButton, AppStatusChip, AppSurface, AppEmpty, StatusDot } from '@/components/ui'
 import type { AbnormalVehicle, ApprovalStatus } from '@/data/types'
@@ -15,6 +15,7 @@ const ICON = {
   shield: '<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/>',
   undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-4"/>',
   alert: '<circle cx="12" cy="12" r="8.5"/><path d="M12 8v4.5"/><path d="M12 16h.01"/>',
+  chevron: '<path d="M6 9l6 6 6-6"/>',
 } as const
 
 // ===== 按车牌聚合，用于审批分组 =====
@@ -49,6 +50,13 @@ function toggleBlacklist(plate: string) {
 
 function toggleRemove(plate: string) {
   store.toggleRemove(plate)
+}
+
+// ===== 记录明细默认收纳，点击展开 =====
+const expanded = reactive(new Set<string>())
+
+function toggleRecords(plate: string) {
+  expanded.has(plate) ? expanded.delete(plate) : expanded.add(plate)
 }
 
 // ===== 黑名单信息导出（CSV） =====
@@ -95,8 +103,32 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
             as="section"
             class="p-5"
           >
-            <!-- 分组头部 -->
-            <div class="flex flex-wrap items-center gap-3">
+            <!-- 分组头部（整行可点击展开/收起） -->
+            <div
+              class="flex cursor-pointer select-none flex-wrap items-center gap-3"
+              role="button"
+              tabindex="0"
+              :aria-expanded="expanded.has(g.plate)"
+              @click="toggleRecords(g.plate)"
+              @keydown.enter.prevent="toggleRecords(g.plate)"
+              @keydown.space.prevent="toggleRecords(g.plate)"
+            >
+              <span
+                class="flex size-6 shrink-0 items-center justify-center rounded-control text-ink-muted transition-transform duration-300"
+                :class="expanded.has(g.plate) ? 'rotate-180' : ''"
+                aria-hidden="true"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  class="size-4"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  v-html="ICON.chevron"
+                />
+              </span>
               <svg
                 viewBox="0 0 24 24"
                 class="size-5 shrink-0 text-accent-muted"
@@ -111,7 +143,7 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
               <span class="nums-tabular text-heading font-semibold text-ink">{{ g.plate }}</span>
               <span class="text-caption text-ink-muted">{{ g.records.length }} 条记录</span>
               <AppStatusChip :status="g.status" />
-              <div class="ml-auto flex gap-2">
+              <div class="ml-auto flex gap-2" @click.stop>
                 <AppButton
                   :tone="g.status === 'blacklisted' ? 'soft' : 'danger'"
                   small
@@ -132,25 +164,27 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
               </div>
             </div>
 
-            <!-- 分组内记录明细 -->
-            <ul class="mt-4 divide-y divide-stroke/60">
-              <li
-                v-for="(r, i) in g.records"
-                :key="`${r.date}~${i}`"
-                class="flex flex-wrap items-center gap-x-5 gap-y-1 py-2.5 text-caption"
-              >
-                <span class="text-ink-muted">{{ r.date }}</span>
-                <span class="nums-tabular text-ink-soft">{{ r.entryTime ?? '—' }} → {{ r.exitTime ?? '—' }}</span>
-                <span class="nums-tabular font-medium text-ink">{{ formatFee(r.fee) }}</span>
-                <span class="inline-flex items-center gap-1.5">
-                  <StatusDot :tone="r.abnormal ? 'alert' : 'ok'" />
-                  <span :class="r.abnormal ? 'text-status-alert' : 'text-status-ok'">
-                    {{ r.abnormal ? '异常' : '正常' }}
+            <!-- 分组内记录明细（默认收纳，展开时线性滑出并自然推移下方方框） -->
+            <div class="records-wrap" :class="expanded.has(g.plate) ? 'records-open' : ''">
+              <ul class="min-h-0 divide-y divide-stroke/60 overflow-hidden pt-4">
+                <li
+                  v-for="(r, i) in g.records"
+                  :key="`${r.date}~${i}`"
+                  class="flex flex-wrap items-center gap-x-5 gap-y-1 py-2.5 text-caption"
+                >
+                  <span class="text-ink-muted">{{ r.date }}</span>
+                  <span class="nums-tabular text-ink-soft">{{ r.entryTime ?? '—' }} → {{ r.exitTime ?? '—' }}</span>
+                  <span class="nums-tabular font-medium text-ink">{{ formatFee(r.fee) }}</span>
+                  <span class="inline-flex items-center gap-1.5">
+                    <StatusDot :tone="r.abnormal ? 'alert' : 'ok'" />
+                    <span :class="r.abnormal ? 'text-status-alert' : 'text-status-ok'">
+                      {{ r.abnormal ? '异常' : '正常' }}
+                    </span>
                   </span>
-                </span>
-                <span v-if="store.statusOf(r) === 'removed'" class="ml-auto text-ink-faint">已移除</span>
-              </li>
-            </ul>
+                  <span v-if="store.statusOf(r) === 'removed'" class="ml-auto text-ink-faint">已移除</span>
+                </li>
+              </ul>
+            </div>
           </AppSurface>
         </div>
 
@@ -162,8 +196,8 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
         />
       </section>
 
-      <!-- 黑名单侧栏 -->
-      <aside>
+      <!-- 黑名单侧栏：跟随视口固定，不随列表滑动 -->
+      <aside class="lg:sticky lg:top-8 lg:self-start">
         <AppSurface tone="glass" as="section" class="p-5">
           <div class="flex items-center gap-2">
             <svg
@@ -222,3 +256,19 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
     </div>
   </main>
 </template>
+
+<style scoped>
+.records-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  /* 弹簧式缓动：缓起缓停，无回弹 */
+  transition: grid-template-rows 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.records-wrap.records-open {
+  grid-template-rows: 1fr;
+}
+.records-wrap > ul {
+  min-height: 0;
+  overflow: hidden;
+}
+</style>
