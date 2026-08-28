@@ -43,12 +43,12 @@ npm run format       # oxfmt src/
 
 ```
 src/
-  assets/main.css          # 视觉 token 真源（@theme + @utility）
+  assets/main.css          # 视觉 token 真源（@theme + @utility + @layer components 动效）
   theme/tokens.ts          # 标本页用的色板/圆角/阴影数据，hex 必须与 CSS 同步
   components/
     AppAtmosphere.vue      # 页面级奶油底 + 三团模糊光晕
-    AppShell.vue           # 骨架：左栏 + 主区，只渲染一次 RouterView
-    AppSidebar.vue         # 左轨导航：logo 占位 + 4 个 RouterLink，数据驱动
+    AppShell.vue           # 骨架：左栏 + 主区，路由切换时页面左右滑动（方向感知）
+    AppSidebar.vue         # 左轨导航：滑动色块指示激活项 + 4 个 RouterLink，数据驱动
     ui/
       AppSurface.vue       # 玻璃表面（glass / strong / ghost）
       StatusDot.vue        # 低饱和状态圆点
@@ -129,6 +129,21 @@ index.html                 # 引入 Plus Jakarta Sans
 - 状态：`<StatusDot tone="ok|warn|idle|alert" />`，需要无障碍时传 `label`。
 - 趋势胶囊：外层 `chip`（上升）或 `chip-sage`（有利下降），内层 `<TrendMark>`。
 
+## 动画规范（必须遵守）
+
+所有动效统一「**线性弹簧**」：`--ease-spring`（`cubic-bezier(0.34, 1.56, 0.64, 1)`）+ `--duration-spring`（420ms），token 定义在 `src/assets/main.css` 的 `@theme`。组件里用 `ease-spring duration-[var(--duration-spring)]`，原生 CSS 直接用两个 var。不要用默认 `ease-in-out`、不要硬切。
+
+现有三处动画（新增动画沿用同一套曲线与时长）：
+
+| 位置 | 效果 |
+| --- | --- |
+| `AppSidebar.vue` | 导航色块：绝对定位 `bg-accent-mist` 指示块，按激活项 `top/height` 弹簧平移 |
+| `AppShell.vue` | 路由过渡：`<Transition mode="out-in">`，按导航顺序前进右进 / 后退左进，类名 `page-slide-right/left-*`（定义在 `main.css` 的 `@layer components`） |
+| `DetailsPage.vue` | 筛选折叠：`.filter-collapse`（`grid-template-rows 0fr→1fr`）+ `.open`，箭头随展开旋转 |
+
+- 路由滑动方向由 `NAV_ORDER` 决定（`AppShell.vue`），新增页面记得加入顺序数组。
+- 折叠类面板统一用 `filter-collapse` 模式，不要用 JS 量高度。
+
 ## 组件约定
 
 - Vue 组件文件名必须多词：`AppSurface.vue` 可以，`Surface.vue` 会被 `vue/multi-word-component-names` 报错。
@@ -165,4 +180,5 @@ index.html                 # 引入 Plus Jakarta Sans
 3. 标本页能看到变化（`/`）。
 4. `npx vue-tsc --build && npx vite build` 通过。
 5. 抽查产物 CSS：自定义 token 在、`backdrop-filter` 无前缀形式还在、没有误扫进的工具类。
+6. 改动画：沿用 `--ease-spring` / `--duration-spring`，不要硬编码曲线或时长。
 

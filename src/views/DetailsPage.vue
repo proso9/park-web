@@ -15,6 +15,9 @@ const filterDate = ref('all')
 const filterAbnormal = ref<'all' | 'ok' | 'abnormal'>('all')
 const filterTiming = ref<'all' | 'no-entry' | 'no-exit'>('all')
 
+// 筛选区展开/收起（弹簧折叠动画）
+const filterOpen = ref(true)
+
 const dateOptions = computed<string[]>(() => {
   const seen = new Set<string>()
   for (const r of store.sourceRecords) seen.add(r.date)
@@ -49,6 +52,7 @@ const ICON = {
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
   car: '<rect x="3" y="8" width="18" height="9" rx="2.5"/><circle cx="7.5" cy="17" r="1.6"/><circle cx="16.5" cy="17" r="1.6"/>',
   alert: '<circle cx="12" cy="12" r="8.5"/><path d="M12 8v4.5"/><path d="M12 16h.01"/>',
+  chevron: '<path d="M6 9l6 6 6-6"/>',
 } as const
 
 const formatFee = (fee: number) => fee.toFixed(2)
@@ -65,9 +69,33 @@ const isHighFee = (fee: number) => fee >= FEE_EMPHASIS
       </p>
     </header>
 
-    <!-- 工具条：搜索 + 筛选 -->
-    <div class="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <label class="relative block">
+    <!-- 工具条：搜索 + 筛选（可收起，弹簧折叠动画） -->
+    <div class="mb-5">
+      <button
+        type="button"
+        :aria-expanded="filterOpen"
+        aria-controls="filter-panel"
+        @click="filterOpen = !filterOpen"
+        class="mb-3 inline-flex items-center gap-1.5 rounded-pill border border-stroke bg-foam/60 px-3.5 py-2 text-caption font-medium text-ink-soft transition-colors hover:border-accent hover:text-accent-deep"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          class="size-3.5 text-ink-muted transition-transform duration-[var(--duration-spring)] ease-spring"
+          :class="filterOpen ? 'rotate-180' : ''"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+          v-html="ICON.chevron"
+        />
+        {{ filterOpen ? '收起筛选' : '展开筛选' }}
+      </button>
+
+      <div id="filter-panel" class="filter-collapse" :class="{ open: filterOpen }">
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label class="relative block">
         <svg
           viewBox="0 0 24 24"
           class="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-ink-faint"
@@ -124,6 +152,8 @@ const isHighFee = (fee: number) => fee >= FEE_EMPHASIS
         </select>
         <span class="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-ink-faint">▾</span>
       </label>
+        </div>
+      </div>
     </div>
 
     <!-- 结果统计 -->
