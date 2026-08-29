@@ -4,13 +4,21 @@
 
 ## 这是什么
 
-Vue 3 + Vite + Tailwind CSS 4 的前端。现代、极简、温暖、高级的 SaaS。左侧窄轨导航，占位业务页面。
+Vue 3 + Vite + Tailwind CSS 4 的前端。现代、极简、温暖、高级的 SaaS。左侧窄轨导航。
 
-原始阶段只有**视觉语言**（配色、字体层级、渐变、圆角、阴影、表面材质）。
+视觉语言（配色、字体层级、渐变、圆角、阴影、表面材质）已有完整 token；业务上已落地异常车辆 CSV 解析、审批状态、黑名单等真实流程，Overview / Settings 仍是占位页。
 
 氛围：现代、极简、温暖、高级的 SaaS。奶油底、桃色光晕、深棕墨色、大面积留白。
 
 参考图在 `材料/design.png`（已列入 `.gitignore`，本地才有）。视觉方向以该图和 `src/assets/main.css` 为准，不要自行改成冷灰 / 纯黑 / 高饱和蓝。
+
+## 保持本文件与代码同步（AI 必读）
+
+本文件是项目规范真源。AI / 协作者改动本项目代码时，必须遵守：
+
+1. 先读本文件，再改代码；视觉相关改动务必遵守其中的 token 与动效规范。
+2. **本文件必须与代码保持同步。** 当代码发生变化、本文件里的目录 / 组件 / 路由 / 命令 / 约束描述不再准确时，应主动更新本文件，而非让文档失真。
+3. 更新本文件时：只改事实性描述（目录、组件、路由、命令、新增约束），不改视觉方向与既有约定；保持简体中文风格。
 
 ## 技术栈
 
@@ -30,7 +38,7 @@ Node：`^22.18.0 || >=24.12.0`。包管理：npm。
 ## 常用命令
 
 ```sh
-npm run dev          # 开发。首页即视觉标本
+npm run dev          # 开发。标本页在 /style-guide
 npm run build        # vue-tsc + vite build
 npm run type-check   # 仅类型
 npm run lint         # oxlint --fix + eslint --fix
@@ -51,16 +59,28 @@ src/
     AppSidebar.vue         # 左轨导航：滑动色块指示激活项 + 4 个 RouterLink，数据驱动
     ui/
       AppSurface.vue       # 玻璃表面（glass / strong / ghost）
-      AppDatePicker.vue    # 全站统一日期选择：输入框唤起悬浮日历，single/range、拖拽框选、今日/禁用、键盘
+      AppButton.vue        # 通用按钮（primary / ghost / danger 等）
+      AppStatusChip.vue    # 审批状态胶囊
       AppSelect.vue        # 通用下拉（除日期外：异常/出入场/车牌等选项筛选）
+      AppDatePicker.vue    # 全站统一日期选择：输入框唤起悬浮日历，single/range、拖拽框选、今日/禁用、键盘
+      AppEmpty.vue         # 空状态占位
       StatusDot.vue        # 低饱和状态圆点
       TrendMark.vue        # 趋势箭头与颜色
       index.ts             # 统一导出
-  views/StyleGuide.vue     # `/style-guide` 抽象视觉标本，不是产品页
-  views/*Page.vue          # 占位页：Overview / Details / Approval / Settings
+  data/
+    types.ts               # 领域类型：AbnormalVehicle、ApprovalStatus
+    parse.ts               # 从 src/data/*.csv 解析异常车辆记录（Vite glob 动态加载）
+  views/
+    StyleGuide.vue         # `/style-guide` 抽象视觉标本，不是产品页
+    OverviewPage.vue       # 占位页
+    DetailsPage.vue        # 明细：筛选折叠 + 单日日期选择
+    ApprovalPage.vue       # 审批：范围日期选择 + 状态/黑名单流程
+    SettingsPage.vue       # 占位页
   App.vue                  # 只包一层 AppAtmosphere，内置 AppShell
   router/index.ts
   stores/
+    park.ts                # 业务 store：审批状态 + 黑名单，localStorage 持久化
+    counter.ts             # 模板残留，勿用
   main.ts                  # 必须 import './assets/main.css'
 index.html                 # 引入 Plus Jakarta Sans
 ```
@@ -91,6 +111,7 @@ index.html                 # 引入 Plus Jakarta Sans
 | `accent-soft`   | `#FFAA85` | 渐变末端            |
 | `accent-deep`   | `#E56B4A` | 强调底上的字、上升趋势     |
 | `accent-muted`  | `#E8A090` | 大面积填充（柱、块）      |
+| `mint`          | `#5FA99C` | 薄荷青点缀             |
 | `trend-up`      | `#E56B4A` | 上升              |
 | `trend-down`    | `#6B9B7A` | **有利**下降（耗时变短等） |
 | `trend-neutral` | `#9A8B7C` | 持平              |
@@ -128,7 +149,7 @@ index.html                 # 引入 Plus Jakarta Sans
 
 ### 点缀
 
-- 状态：`<StatusDot tone="ok|warn|idle|alert" />`，需要无障碍时传 `label`。
+- 状态：`<StatusDot tone="ok|warn|idle|alert" />`，需要无障碍时传 `label`。审批状态胶囊用 `<AppStatusChip>`，按钮用 `<AppButton>`，空态用 `<AppEmpty>`。
 - 趋势胶囊：外层 `chip`（上升）或 `chip-sage`（有利下降），内层 `<TrendMark>`。
 
 ## 动画规范（必须遵守）
@@ -180,7 +201,7 @@ index.html                 # 引入 Plus Jakarta Sans
 
 1. 只改 `src/assets/main.css` 的 `@theme` / `@utility`，或新增真正可复用的 `@utility`。
 2. hex 同步到 `src/theme/tokens.ts`。
-3. 标本页能看到变化（`/`）。
+3. 标本页能看到变化（`/style-guide`）。
 4. `npx vue-tsc --build && npx vite build` 通过。
 5. 抽查产物 CSS：自定义 token 在、`backdrop-filter` 无前缀形式还在、没有误扫进的工具类。
 6. 改动画：沿用 `--ease-spring` / `--duration-spring`，不要硬编码曲线或时长。
