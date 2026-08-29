@@ -4,11 +4,41 @@ import { loadAllVehicles } from '@/data/parse'
 import type { AbnormalVehicle, ApprovalStatus } from '@/data/types'
 
 const STORAGE_KEY = 'park:approval-state'
+const SETTINGS_KEY = 'park:settings'
 
 interface PersistedState {
   status: Record<string, ApprovalStatus>
   plates: string[]
 }
+
+/** 概览页「重点车辆标签」的可调阈值 */
+interface VehSettings {
+  repeatThreshold: number
+  highFeeThreshold: number
+}
+
+function loadSettings(): VehSettings {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY)
+    if (!raw) return { repeatThreshold: 2, highFeeThreshold: 500 }
+    const parsed = JSON.parse(raw) as Partial<VehSettings>
+    return {
+      repeatThreshold:
+        typeof parsed.repeatThreshold === 'number' && parsed.repeatThreshold > 0
+          ? parsed.repeatThreshold
+          : 2,
+      highFeeThreshold:
+        typeof parsed.highFeeThreshold === 'number' && parsed.highFeeThreshold > 0
+          ? parsed.highFeeThreshold
+          : 500,
+    }
+  } catch {
+    return { repeatThreshold: 2, highFeeThreshold: 500 }
+  }
+}
+
+const FEES_LIMIT = 10000
+const REPEAT_LIMIT = 100
 
 /** 一条记录的唯一标识：日期 + 牌号 + 出入场时间，容错缺失时间 */
 function recordKey(r: AbnormalVehicle): string {
@@ -37,6 +67,23 @@ export const useParkStore = defineStore('park', () => {
   const persisted = loadPersisted()
   const statusMap = ref<Record<string, ApprovalStatus>>(persisted.status)
   const blacklistedPlates = ref<string[]>(persisted.plates)
+
+  // 概览页「重点车辆标签」阈值，localStorage 持久化
+  const saved = loadSettings()
+  const repeatThreshold = ref(saved.repeatThreshold)
+  const highFeeThreshold = ref(saved.highFeeThreshold)
+
+  /** 更新阈值并持久化；非法值（非正数）不写入 */
+  function setThresholds(repeat: number, highFee: number) {
+    if (!Number.isFinite(repeat) || repeat <= 0 || repeat > REPEAT_LIMIT) return
+    if (!Number.isFinite(highFee) || highFee <= 0 || highFee > FEES_LIMIT) return
+    repeatThreshold.value = repeat
+    highFeeThreshold.value = highFee
+    localStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({ repeatThreshold, highFeeThreshold }),
+    )
+  }
 
   function persist() {
     const payload: PersistedState = { status: statusMap.value, plates: blacklistedPlates.value }
@@ -100,6 +147,9 @@ export const useParkStore = defineStore('park', () => {
     sourceRecords,
     blacklistedPlates,
     blacklistRecords,
+    repeatThreshold,
+    highFeeThreshold,
+    setThresholds,
     statusOf,
     isBlacklisted,
     toggleBlacklist,

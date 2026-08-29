@@ -75,11 +75,11 @@ src/
     OverviewPage.vue       # 概览仪表盘：问候 + 日期范围筛选 + KPI 卡片 / 每日柱状图 / 运营指标四宫格 / 最近动态 / 重点车辆标签统计
     DetailsPage.vue        # 明细：筛选折叠 + 单日日期选择
     ApprovalPage.vue       # 审批：范围日期选择 + 状态/黑名单流程
-    SettingsPage.vue       # 占位页
+    SettingsPage.vue       # 设置：可调概览页「屡次异常 / 高额欠费」判定阈值（含实时预演）
   App.vue                  # 只包一层 AppAtmosphere，内置 AppShell
   router/index.ts
   stores/
-    park.ts                # 业务 store：审批状态 + 黑名单，localStorage 持久化
+    park.ts                # 业务 store：审批状态 + 黑名单 + 概览阈值，均 localStorage 持久化
     counter.ts             # 模板残留，勿用
   main.ts                  # 必须 import './assets/main.css'
 index.html                 # 引入 Plus Jakarta Sans

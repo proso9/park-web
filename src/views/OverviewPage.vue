@@ -194,8 +194,8 @@ const plateTags = computed(() => {
 
   const blacklisted = plates.filter((p) => store.isBlacklisted(p))
   const pending = plates.filter((p) => statusOfPlate(byPlate(p)) === 'pending')
-  const repeat = plates.filter((p) => byPlate(p).filter((r) => r.abnormal).length >= 2)
-  const highFee = plates.filter((p) => byPlate(p).reduce((sum, r) => sum + r.fee, 0) >= 500)
+  const repeat = plates.filter((p) => byPlate(p).filter((r) => r.abnormal).length >= store.repeatThreshold)
+  const highFee = plates.filter((p) => byPlate(p).reduce((sum, r) => sum + r.fee, 0) >= store.highFeeThreshold)
 
   const mk = (label: string, colorCls: string, list: string[]) => ({
     label,
@@ -488,7 +488,7 @@ onMounted(() => {
               </ul>
 
               <p class="mt-5 text-micro text-ink-faint">
-                屡次异常 ≥ 2 条异常记录 · 高额欠费为累计费用 ≥ ¥500
+                屡次异常 ≥ {{ store.repeatThreshold }} 条异常记录 · 高额欠费为累计费用 ≥ ¥{{ store.highFeeThreshold }}
               </p>
             </div>
           </AppSurface>
