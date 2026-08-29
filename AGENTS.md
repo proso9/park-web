@@ -6,7 +6,7 @@
 
 Vue 3 + Vite + Tailwind CSS 4 的前端。现代、极简、温暖、高级的 SaaS。左侧窄轨导航。
 
-视觉语言（配色、字体层级、渐变、圆角、阴影、表面材质）已有完整 token；业务上已落地异常车辆 CSV 解析、审批状态、黑名单等真实流程，Overview / Settings 仍是占位页。
+视觉语言（配色、字体层级、渐变、圆角、阴影、表面材质）已有完整 token；业务上已落地异常车辆 CSV 解析、审批状态、黑名单等真实流程，概览页已是数据仪表盘，Settings 仍是占位页。
 
 氛围：现代、极简、温暖、高级的 SaaS。奶油底、桃色光晕、深棕墨色、大面积留白。
 
@@ -72,7 +72,7 @@ src/
     parse.ts               # 从 src/data/*.csv 解析异常车辆记录（Vite glob 动态加载）
   views/
     StyleGuide.vue         # `/style-guide` 抽象视觉标本，不是产品页
-    OverviewPage.vue       # 占位页
+    OverviewPage.vue       # 概览仪表盘：问候 + 日期范围筛选 + KPI 卡片 / 每日柱状图 / 运营指标四宫格 / 最近动态 / 重点车辆标签统计
     DetailsPage.vue        # 明细：筛选折叠 + 单日日期选择
     ApprovalPage.vue       # 审批：范围日期选择 + 状态/黑名单流程
     SettingsPage.vue       # 占位页
@@ -156,13 +156,14 @@ index.html                 # 引入 Plus Jakarta Sans
 
 所有动效统一「**线性弹簧**」：`--ease-spring`（`cubic-bezier(0.34, 1.56, 0.64, 1)`）+ `--duration-spring`（420ms），token 定义在 `src/assets/main.css` 的 `@theme`。组件里用 `ease-spring duration-[var(--duration-spring)]`，原生 CSS 直接用两个 var。不要用默认 `ease-in-out`、不要硬切。
 
-现有三处动画（新增动画沿用同一套曲线与时长）：
+现有四处动画（新增动画沿用同一套曲线与时长）：
 
 | 位置 | 效果 |
 | --- | --- |
 | `AppSidebar.vue` | 导航色块：绝对定位 `bg-accent-mist` 指示块，按激活项 `top/height` 弹簧平移 |
 | `AppShell.vue` | 路由过渡：`<Transition mode="out-in">`，按导航顺序前进右进 / 后退左进，类名 `page-slide-right/left-*`（定义在 `main.css` 的 `@layer components`） |
 | `DetailsPage.vue` | 筛选折叠：`.filter-collapse`（`grid-template-rows 0fr→1fr`）+ `.open`，箭头随展开旋转 |
+| `OverviewPage.vue` | 概览入场：卡片渐显上浮（`.reveal` / `.reveal-in`，`--d` 做逐级延迟）+ 柱状图 / 标签条生长过渡（height / width 过渡），均用弹簧 token |
 
 - 路由滑动方向由 `NAV_ORDER` 决定（`AppShell.vue`），新增页面记得加入顺序数组。
 - 折叠类面板统一用 `filter-collapse` 模式，不要用 JS 量高度。
