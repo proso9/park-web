@@ -51,6 +51,8 @@ src/
     AppSidebar.vue         # 左轨导航：滑动色块指示激活项 + 4 个 RouterLink，数据驱动
     ui/
       AppSurface.vue       # 玻璃表面（glass / strong / ghost）
+      AppDatePicker.vue    # 全站统一日期选择：输入框唤起悬浮日历，single/range、拖拽框选、今日/禁用、键盘
+      AppSelect.vue        # 通用下拉（除日期外：异常/出入场/车牌等选项筛选）
       StatusDot.vue        # 低饱和状态圆点
       TrendMark.vue        # 趋势箭头与颜色
       index.ts             # 统一导出
@@ -150,6 +152,7 @@ index.html                 # 引入 Plus Jakarta Sans
 - 一律 `<script setup lang="ts">`。props 用 `defineProps` + `withDefaults`。
 - UI 从 `@/components/ui` 导入，不要深层相对路径乱穿。
 - `App.vue` 已经包了 `AppAtmosphere`。页面里不要再套一层，除非明确关掉光晕（`orbs={false}`）。
+- **全站日期选择统一用 `<AppDatePicker>`**（`ApprovalPage` range 选范围、`DetailsPage` single 选单日）。不要再用 `AppSelect` 去列日期选项来当日期筛选。范围/单选的 v-model 值类型见组件导出 `DatePickerValue`。
 - 不要为了「完整后台」去造顶栏、图表、时间轴、卡片墙。侧栏已有（`AppShell` / `AppSidebar`），别随意把它改成宽文字菜单或加底部头像。
 
 ## Tailwind 4 注意

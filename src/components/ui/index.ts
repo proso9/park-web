@@ -1,6 +1,8 @@
 export { default as AppSurface } from './AppSurface.vue'
 export { default as AppButton } from './AppButton.vue'
 export { default as AppStatusChip } from './AppStatusChip.vue'
+export { default as AppSelect } from './AppSelect.vue'
+export { default as AppDatePicker } from './AppDatePicker.vue'
 export { default as AppEmpty } from './AppEmpty.vue'
 export { default as StatusDot } from './StatusDot.vue'
 export { default as TrendMark } from './TrendMark.vue'

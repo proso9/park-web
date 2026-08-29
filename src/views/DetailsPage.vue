@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useParkStore } from '@/stores/park'
-import { AppSurface, AppEmpty, StatusDot } from '@/components/ui'
+import { AppSurface, AppEmpty, AppSelect, AppDatePicker, StatusDot } from '@/components/ui'
 import type { AbnormalVehicle } from '@/data/types'
 
 const store = useParkStore()
@@ -11,18 +11,37 @@ const FEE_EMPHASIS = 100
 
 // ===== 搜索 & 筛选状态 =====
 const query = ref('')
-const filterDate = ref('all')
+// 日期用 AppDatePicker（网站统一日期选择）筛选：null 表示全部日期
+const filterDate = ref<string | null>(null)
 const filterAbnormal = ref<'all' | 'ok' | 'abnormal'>('all')
 const filterTiming = ref<'all' | 'no-entry' | 'no-exit'>('all')
 
 // 筛选区展开/收起（弹簧折叠动画）
 const filterOpen = ref(true)
 
+// 可选日期取数据实际出现的区间，作为日期选择器的上下限
 const dateOptions = computed<string[]>(() => {
   const seen = new Set<string>()
   for (const r of store.sourceRecords) seen.add(r.date)
   return [...seen].sort()
 })
+
+const dateMin = computed(() => dateOptions.value[0] ?? '2000-01-01')
+const dateMax = computed(
+  () => dateOptions.value[dateOptions.value.length - 1] ?? new Date().toISOString().slice(0, 10),
+)
+
+const abnormalSelectOptions = [
+  { value: 'all', label: '全部' },
+  { value: 'abnormal', label: '仅异常' },
+  { value: 'ok', label: '仅正常' },
+]
+
+const timingSelectOptions = [
+  { value: 'all', label: '全部' },
+  { value: 'no-entry', label: '缺入场' },
+  { value: 'no-exit', label: '缺出场' },
+]
 
 const plateOptions = computed<string[]>(() => {
   const seen = new Set<string>()
@@ -34,7 +53,7 @@ const filtered = computed<AbnormalVehicle[]>(() => {
   const q = query.value.trim().toUpperCase()
   return store.sourceRecords.filter((r) => {
     if (q && !r.plate.toUpperCase().includes(q)) return false
-    if (filterDate.value !== 'all' && r.date !== filterDate.value) return false
+    if (filterDate.value && r.date !== filterDate.value) return false
     if (filterAbnormal.value === 'ok' && r.abnormal) return false
     if (filterAbnormal.value === 'abnormal' && !r.abnormal) return false
     if (filterTiming.value === 'no-entry' && r.entryTime) return false
@@ -116,42 +135,18 @@ const isHighFee = (fee: number) => fee >= FEE_EMPHASIS
       </label>
 
       <label class="relative block">
-        <span class="pointer-events-none absolute left-3.5 top-2.5 text-caption text-ink-faint">日期</span>
-        <select
+        <AppDatePicker
           v-model="filterDate"
-          class="w-full appearance-none rounded-control border border-stroke bg-foam/70 py-2.5 pl-14 pr-8 text-body text-ink focus:border-accent focus:outline-none"
-        >
-          <option value="all">全部日期</option>
-          <option v-for="d in dateOptions" :key="d" :value="d">{{ d }}</option>
-        </select>
-        <span class="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-ink-faint">▾</span>
+          mode="single"
+          :min="dateMin"
+          :max="dateMax"
+          placeholder="全部日期"
+        />
       </label>
 
-      <label class="relative block">
-        <span class="pointer-events-none absolute left-3.5 top-2.5 text-caption text-ink-faint">异常</span>
-        <select
-          v-model="filterAbnormal"
-          class="w-full appearance-none rounded-control border border-stroke bg-foam/70 py-2.5 pl-14 pr-8 text-body text-ink focus:border-accent focus:outline-none"
-        >
-          <option value="all">全部</option>
-          <option value="abnormal">仅异常</option>
-          <option value="ok">仅正常</option>
-        </select>
-        <span class="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-ink-faint">▾</span>
-      </label>
+      <AppSelect v-model="filterAbnormal" label="异常" :options="abnormalSelectOptions" />
 
-      <label class="relative block">
-        <span class="pointer-events-none absolute left-3.5 top-2.5 text-caption text-ink-faint">出入场</span>
-        <select
-          v-model="filterTiming"
-          class="w-full appearance-none rounded-control border border-stroke bg-foam/70 py-2.5 pl-14 pr-8 text-body text-ink focus:border-accent focus:outline-none"
-        >
-          <option value="all">全部</option>
-          <option value="no-entry">缺入场</option>
-          <option value="no-exit">缺出场</option>
-        </select>
-        <span class="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-ink-faint">▾</span>
-      </label>
+      <AppSelect v-model="filterTiming" label="出入场" :options="timingSelectOptions" />
         </div>
       </div>
     </div>

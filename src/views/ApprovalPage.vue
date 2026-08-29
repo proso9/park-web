@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, reactive } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useParkStore } from '@/stores/park'
-import { AppButton, AppStatusChip, AppSurface, AppEmpty, StatusDot } from '@/components/ui'
+import { AppButton, AppStatusChip, AppSurface, AppEmpty, AppDatePicker, StatusDot } from '@/components/ui'
 import type { AbnormalVehicle, ApprovalStatus } from '@/data/types'
 
 const store = useParkStore()
@@ -25,16 +25,29 @@ interface VehicleGroup {
   status: ApprovalStatus
 }
 
+// ===== 日期范围筛选（AppDatePicker，range 模式） =====
+const dateRange = ref<readonly [string, string] | null>(null)
+
+const visibleCount = computed(() => groups.value.reduce((sum, g) => sum + g.records.length, 0))
+
 const groups = computed<VehicleGroup[]>(() => {
+  const range = dateRange.value
+  const inRange = (d: string) => !range || (d >= range[0] && d <= range[1])
   const map = new Map<string, AbnormalVehicle[]>()
   for (const r of store.sourceRecords) {
+    if (!inRange(r.date)) continue
     const list = map.get(r.plate)
     if (list) list.push(r)
     else map.set(r.plate, [r])
   }
   return [...map.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([plate, records]) => ({ plate, records, status: groupStatus(records) }))
+    .map(([plate, records]) => ({
+      plate,
+      records,
+      // 审批状态按该车全部记录判断，不随日期筛选变化
+      status: groupStatus(store.sourceRecords.filter((r) => r.plate === plate)),
+    }))
 })
 
 function groupStatus(records: AbnormalVehicle[]): ApprovalStatus {
@@ -56,7 +69,8 @@ function toggleRemove(plate: string) {
 const expanded = reactive(new Set<string>())
 
 function toggleRecords(plate: string) {
-  expanded.has(plate) ? expanded.delete(plate) : expanded.add(plate)
+  if (expanded.has(plate)) expanded.delete(plate)
+  else expanded.add(plate)
 }
 
 // ===== 黑名单信息导出（CSV） =====
@@ -95,6 +109,29 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
     <div class="grid gap-6 lg:grid-cols-3">
       <!-- 审批列表 -->
       <section class="lg:col-span-2">
+        <!-- 日期范围筛选工具条 -->
+        <div class="mb-4 flex flex-wrap items-center gap-2.5">
+          <span class="text-caption font-medium text-ink-muted">审批日期</span>
+          <AppDatePicker
+            v-model="dateRange"
+            mode="range"
+            size="small"
+            placeholder="全部日期"
+          />
+          <span v-if="dateRange" class="text-caption text-ink-muted">
+            范围内 {{ visibleCount }} 条记录 · {{ groups.length }} 台车辆
+          </span>
+          <AppButton
+            v-if="dateRange"
+            tone="ghost"
+            small
+            :icon="ICON.undo"
+            @click="dateRange = null"
+          >
+            清空筛选
+          </AppButton>
+        </div>
+
         <div v-if="groups.length" class="space-y-4">
           <AppSurface
             v-for="g in groups"
@@ -191,8 +228,8 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
         <AppEmpty
           v-else
           :icon="ICON.alert"
-          title="暂无待审批车辆"
-          hint="所有异常车辆都已处理完毕"
+          :title="dateRange ? '该日期范围内暂无待审批车辆' : '暂无待审批车辆'"
+          :hint="dateRange ? '试试调整或清空日期筛选' : '所有异常车辆都已处理完毕'"
         />
       </section>
 

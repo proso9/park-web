@@ -1,7 +1,7 @@
 <script setup lang="ts">
 withDefaults(
   defineProps<{
-    as?: 'div' | 'section' | 'article'
+    as?: 'div' | 'section' | 'article' | 'ul'
     tone?: 'glass' | 'strong' | 'ghost'
   }>(),
   {

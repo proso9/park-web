@@ -18,6 +18,7 @@ export const colorSpecimens = [
     hex: '#F8E0D4',
     role: '淡桃色衬底',
   },
+  { group: '强调', name: 'mint', className: 'bg-mint', hex: '#5FA99C', role: '薄荷青' },
   { group: '基调', name: 'foam', className: 'bg-foam', hex: '#FFFBF7', role: '表面色素' },
   { group: '墨色', name: 'ink', className: 'bg-ink', hex: '#2C241C', role: '主文案' },
   { group: '墨色', name: 'ink-soft', className: 'bg-ink-soft', hex: '#5E534A', role: '次级文案' },
