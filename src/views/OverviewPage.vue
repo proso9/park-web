@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useParkStore } from '@/stores/park'
 import { AppDatePicker, AppEmpty, AppSurface, StatusDot, TrendMark } from '@/components/ui'
 import type { AbnormalVehicle, ApprovalStatus } from '@/data/types'
@@ -142,6 +142,48 @@ const daily = computed(() =>
 const maxDaily = computed(() => Math.max(1, ...daily.value.map((d) => d.total)))
 const barPct = (v: number) => `${((v / maxDaily.value) * 100).toFixed(2)}%`
 
+// ===== 图表样式切换（柱状 / 折线共用同一份数据与比例尺） =====
+const chartOptions = [
+  { key: 'bar', label: '柱状' },
+  { key: 'line', label: '折线' },
+] as const
+type ChartType = (typeof chartOptions)[number]['key']
+const chartType = ref<ChartType>('bar')
+
+/** 滑动色块指示激活项：色块按目标按钮的几何位置弹簧平移（同 AppSidebar 模式） */
+const indicator = ref({ left: '0px', width: '0px', ready: false })
+const btnEls = new Map<ChartType, HTMLElement>()
+
+function setBtnRef(key: ChartType, el: unknown) {
+  const node = el as HTMLElement | null
+  if (node) btnEls.set(key, node)
+  else btnEls.delete(key)
+}
+
+function updateIndicator() {
+  const el = btnEls.get(chartType.value)
+  if (!el) return
+  indicator.value = { left: `${el.offsetLeft}px`, width: `${el.offsetWidth}px`, ready: true }
+}
+
+watch(chartType, () => nextTick(updateIndicator))
+
+// ===== 图表入场：每次切换类型都重播一次生长动画 =====
+const chartRevealed = ref(false)
+
+function revealChart() {
+  chartRevealed.value = false
+  requestAnimationFrame(() => requestAnimationFrame(() => (chartRevealed.value = true)))
+}
+
+watch(chartType, revealChart)
+
+/** viewBox 纵向按 100 等分，x 落在每列中点；配合 preserveAspectRatio="none" 拉伸铺满 */
+const linePoints = (values: number[]) =>
+  values
+    .map((v, i) => `${(i + 0.5).toFixed(2)},${(100 - (v / maxDaily.value) * 100).toFixed(2)}`)
+    .join(' ')
+
 // ===== 运营指标四宫格 =====
 const metrics = computed(() => {
   const w = windowStats.value
@@ -220,6 +262,8 @@ const totalPlates = computed(() =>
 const shown = ref(false)
 onMounted(() => {
   requestAnimationFrame(() => requestAnimationFrame(() => (shown.value = true)))
+  updateIndicator()
+  revealChart()
 })
 </script>
 
@@ -319,17 +363,46 @@ onMounted(() => {
                 <h2 class="text-heading font-semibold text-ink">每日记录分布</h2>
                 <p class="mt-0.5 text-caption text-ink-muted">按日期统计正常 / 异常记录条数</p>
               </div>
-              <div class="flex items-center gap-4 text-micro text-ink-muted">
-                <span class="inline-flex items-center gap-1.5">
-                  <span class="size-2 rounded-full bg-accent" aria-hidden="true" />异常
-                </span>
-                <span class="inline-flex items-center gap-1.5">
-                  <span class="size-2 rounded-full bg-accent-muted" aria-hidden="true" />正常
-                </span>
+              <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <div class="flex items-center gap-4 text-micro text-ink-muted">
+                  <span class="inline-flex items-center gap-1.5">
+                    <span class="size-2 rounded-full bg-accent" aria-hidden="true" />异常
+                  </span>
+                  <span class="inline-flex items-center gap-1.5">
+                    <span class="size-2 rounded-full bg-accent-muted" aria-hidden="true" />正常
+                  </span>
+                </div>
+                <div
+                  class="relative flex items-center rounded-pill border border-stroke bg-foam/60 p-1"
+                  role="group"
+                  aria-label="图表样式"
+                >
+                  <!-- 滑动色块：跟随激活项弹簧平移，不随切换闪现 -->
+                  <span
+                    class="pointer-events-none absolute inset-y-1 rounded-pill bg-accent-mist transition-[left,width,opacity] ease-spring duration-[var(--duration-spring)]"
+                    :class="indicator.ready ? 'opacity-100' : 'opacity-0'"
+                    :style="{ left: indicator.left, width: indicator.width }"
+                    aria-hidden="true"
+                  />
+                  <button
+                    v-for="opt in chartOptions"
+                    :key="opt.key"
+                    :ref="(el) => setBtnRef(opt.key, el)"
+                    type="button"
+                    class="relative rounded-pill px-3 py-1 text-caption font-medium transition-colors duration-[var(--duration-spring)] ease-spring"
+                    :class="
+                      chartType === opt.key ? 'text-accent-deep' : 'text-ink-muted hover:text-ink-soft'
+                    "
+                    :aria-pressed="chartType === opt.key"
+                    @click="chartType = opt.key"
+                  >
+                    {{ opt.label }}
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div class="relative mt-6 flex items-end gap-4 sm:gap-8">
+            <div v-if="chartType === 'bar'" class="relative mt-6 flex items-end gap-4 sm:gap-8">
               <div
                 v-for="(d, i) in daily"
                 :key="d.date"
@@ -342,24 +415,101 @@ onMounted(() => {
                   :aria-label="`${d.date} 共 ${d.total} 条记录，其中异常 ${d.abnormal} 条`"
                   :title="`${d.date} · 共 ${d.total} 条 / 异常 ${d.abnormal} 条`"
                 >
-                  <div class="absolute inset-0 flex flex-col justify-end overflow-hidden rounded-t-control">
+                  <!-- 圆角挂在当前最高的分段上：外层不再裁剪，否则只有顶满量程的柱子才有圆角 -->
+                  <div class="absolute inset-0 flex flex-col justify-end">
                     <div
                       class="w-full bg-accent-gradient transition-[height] ease-spring duration-[var(--duration-spring)]"
+                      :class="d.abnormal > 0 ? 'rounded-t-control' : ''"
                       :style="{
-                        height: shown ? barPct(d.abnormal) : '0%',
+                        height: chartRevealed ? barPct(d.abnormal) : '0%',
                         transitionDelay: `${400 + i * 80}ms`,
                       }"
                     />
                     <div
                       class="w-full bg-accent-muted/60 transition-[height] ease-spring duration-[var(--duration-spring)]"
+                      :class="d.abnormal === 0 ? 'rounded-t-control' : ''"
                       :style="{
-                        height: shown ? barPct(d.normal) : '0%',
+                        height: chartRevealed ? barPct(d.normal) : '0%',
                         transitionDelay: `${400 + i * 80}ms`,
                       }"
                     />
                   </div>
                 </div>
                 <span class="text-caption nums-tabular text-ink-muted">{{ d.label }}</span>
+              </div>
+            </div>
+
+            <!-- 折线视图：与柱状共用同一份数据与比例尺；入场用 clip-path 从左向右擦除展开 -->
+            <div v-else class="relative mt-6">
+              <div
+                class="relative h-40 w-full transition-[clip-path] ease-spring duration-[calc(var(--duration-spring)*2)]"
+                :style="{ clipPath: chartRevealed ? 'inset(0 0 0 0)' : 'inset(0 100% 0 0)' }"
+              >
+                <svg
+                  class="h-full w-full"
+                  :viewBox="`0 0 ${daily.length} 100`"
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                >
+                  <line
+                    v-for="y in [0, 50, 100]"
+                    :key="y"
+                    x1="0"
+                    :x2="daily.length"
+                    :y1="y"
+                    :y2="y"
+                    vector-effect="non-scaling-stroke"
+                    style="stroke: var(--color-stroke)"
+                  />
+                  <polyline
+                    :points="linePoints(daily.map((d) => d.normal))"
+                    fill="none"
+                    style="stroke: var(--color-accent-muted)"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    vector-effect="non-scaling-stroke"
+                  />
+                  <polyline
+                    :points="linePoints(daily.map((d) => d.abnormal))"
+                    fill="none"
+                    style="stroke: var(--color-accent)"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    vector-effect="non-scaling-stroke"
+                  />
+                </svg>
+                <!-- 数据点用 DOM 圆点：preserveAspectRatio 拉伸会把 SVG circle 压成椭圆；随外层 clip-path 一同展开 -->
+                <div class="absolute inset-0 flex">
+                  <div
+                    v-for="d in daily"
+                    :key="d.date"
+                    class="relative flex-1"
+                    role="img"
+                    :aria-label="`${d.date} 共 ${d.total} 条记录，其中异常 ${d.abnormal} 条`"
+                    :title="`${d.date} · 共 ${d.total} 条 / 异常 ${d.abnormal} 条`"
+                  >
+                    <!-- 0 值也画点（贴基线收尾），否则折线终点会显得悬空；max 防止圆点被 clip-path 下缘裁掉 -->
+                    <span
+                      class="absolute left-1/2 size-2 -translate-x-1/2 rounded-full bg-accent ring-2 ring-foam"
+                      :style="{ bottom: `max(calc(${barPct(d.abnormal)} - 4px), 0px)` }"
+                    />
+                    <span
+                      class="absolute left-1/2 size-2 -translate-x-1/2 rounded-full bg-accent-muted ring-2 ring-foam"
+                      :style="{ bottom: `max(calc(${barPct(d.normal)} - 4px), 0px)` }"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div class="mt-2 flex">
+                <span
+                  v-for="d in daily"
+                  :key="d.date"
+                  class="flex-1 text-center text-caption nums-tabular text-ink-muted"
+                >
+                  {{ d.label }}
+                </span>
               </div>
             </div>
           </AppSurface>

@@ -79,10 +79,7 @@ export const useParkStore = defineStore('park', () => {
     if (!Number.isFinite(highFee) || highFee <= 0 || highFee > FEES_LIMIT) return
     repeatThreshold.value = repeat
     highFeeThreshold.value = highFee
-    localStorage.setItem(
-      SETTINGS_KEY,
-      JSON.stringify({ repeatThreshold, highFeeThreshold }),
-    )
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ repeatThreshold, highFeeThreshold }))
   }
 
   function persist() {
@@ -138,6 +135,24 @@ export const useParkStore = defineStore('park', () => {
     persist()
   }
 
+  /** 批量移除（审批页快速移除面板）：命中车牌的未移除记录全部标记为已移除并清出黑名单，单次持久化 */
+  function removePlates(plates: string[]): number {
+    const targets = new Set(plates)
+    if (targets.size === 0) return 0
+    const touched = new Set<string>()
+    for (const r of sourceRecords.value) {
+      if (!targets.has(r.plate) || statusOf(r) === 'removed') continue
+      setStatus(r, 'removed')
+      touched.add(r.plate)
+    }
+    const hadBlacklisted = blacklistedPlates.value.some((p) => targets.has(p))
+    if (touched.size > 0 || hadBlacklisted) {
+      blacklistedPlates.value = blacklistedPlates.value.filter((p) => !targets.has(p))
+      persist()
+    }
+    return touched.size
+  }
+
   /** 黑名单的完整信息记录（拉黑状态下该车牌的所有记录） */
   const blacklistRecords = computed<AbnormalVehicle[]>(() =>
     sourceRecords.value.filter((r) => r.plate !== '' && statusOf(r) === 'blacklisted'),
@@ -154,5 +169,6 @@ export const useParkStore = defineStore('park', () => {
     isBlacklisted,
     toggleBlacklist,
     toggleRemove,
+    removePlates,
   }
 })

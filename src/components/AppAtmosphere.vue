@@ -8,7 +8,8 @@ withDefaults(
 </script>
 
 <template>
-  <div class="relative min-h-dvh overflow-x-hidden bg-canvas text-ink">
+  <!-- overflow-x-clip 不创建滚动容器，不会像 overflow-x-hidden 那样破坏页内 position: sticky（光晕溢出由下方 orb 层自己的 overflow-hidden 裁剪） -->
+  <div class="relative min-h-dvh overflow-x-clip bg-canvas text-ink">
     <div
       v-if="orbs"
       class="pointer-events-none absolute inset-0 overflow-hidden"

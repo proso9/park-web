@@ -64,3 +64,4 @@ desktop.ini
 .claude/
 skills-lock.json
 *.csv
+.zcode/

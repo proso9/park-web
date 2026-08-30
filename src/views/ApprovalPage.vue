@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { useParkStore } from '@/stores/park'
-import { AppButton, AppStatusChip, AppSurface, AppEmpty, AppDatePicker, StatusDot } from '@/components/ui'
+import {
+  AppButton,
+  AppStatusChip,
+  AppSurface,
+  AppEmpty,
+  AppDatePicker,
+  StatusDot,
+} from '@/components/ui'
+import BlacklistQuickRemove from '@/components/BlacklistQuickRemove.vue'
 import type { AbnormalVehicle, ApprovalStatus } from '@/data/types'
 
 const store = useParkStore()
@@ -10,7 +18,8 @@ const store = useParkStore()
 const ICON = {
   car: '<rect x="3" y="8" width="18" height="9" rx="2.5"/><circle cx="7.5" cy="17" r="1.6"/><circle cx="16.5" cy="17" r="1.6"/>',
   ban: '<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>',
-  trash: '<path d="M5 7h14"/><path d="M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2"/><path d="M7 7l1 12a1 1 0 001 1h6a1 1 0 001-1l1-12"/><path d="M10 11v5"/><path d="M14 11v5"/>',
+  trash:
+    '<path d="M5 7h14"/><path d="M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2"/><path d="M7 7l1 12a1 1 0 001 1h6a1 1 0 001-1l1-12"/><path d="M10 11v5"/><path d="M14 11v5"/>',
   download: '<path d="M12 4v10"/><path d="M8 11l4 4 4-4"/><path d="M5 19h14"/>',
   shield: '<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/>',
   undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-4"/>',
@@ -112,12 +121,7 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
         <!-- 日期范围筛选工具条 -->
         <div class="mb-4 flex flex-wrap items-center gap-2.5">
           <span class="text-caption font-medium text-ink-muted">审批日期</span>
-          <AppDatePicker
-            v-model="dateRange"
-            mode="range"
-            size="small"
-            placeholder="全部日期"
-          />
+          <AppDatePicker v-model="dateRange" mode="range" size="small" placeholder="全部日期" />
           <span v-if="dateRange" class="text-caption text-ink-muted">
             范围内 {{ visibleCount }} 条记录 · {{ groups.length }} 台车辆
           </span>
@@ -133,13 +137,7 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
         </div>
 
         <div v-if="groups.length" class="space-y-4">
-          <AppSurface
-            v-for="g in groups"
-            :key="g.plate"
-            tone="strong"
-            as="section"
-            class="p-5"
-          >
+          <AppSurface v-for="g in groups" :key="g.plate" tone="strong" as="section" class="p-5">
             <!-- 分组头部（整行可点击展开/收起） -->
             <div
               class="flex cursor-pointer select-none flex-wrap items-center gap-3"
@@ -210,7 +208,9 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
                   class="flex flex-wrap items-center gap-x-5 gap-y-1 py-2.5 text-caption"
                 >
                   <span class="text-ink-muted">{{ r.date }}</span>
-                  <span class="nums-tabular text-ink-soft">{{ r.entryTime ?? '—' }} → {{ r.exitTime ?? '—' }}</span>
+                  <span class="nums-tabular text-ink-soft"
+                    >{{ r.entryTime ?? '—' }} → {{ r.exitTime ?? '—' }}</span
+                  >
                   <span class="nums-tabular font-medium text-ink">{{ formatFee(r.fee) }}</span>
                   <span class="inline-flex items-center gap-1.5">
                     <StatusDot :tone="r.abnormal ? 'alert' : 'ok'" />
@@ -218,7 +218,9 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
                       {{ r.abnormal ? '异常' : '正常' }}
                     </span>
                   </span>
-                  <span v-if="store.statusOf(r) === 'removed'" class="ml-auto text-ink-faint">已移除</span>
+                  <span v-if="store.statusOf(r) === 'removed'" class="ml-auto text-ink-faint"
+                    >已移除</span
+                  >
                 </li>
               </ul>
             </div>
@@ -233,8 +235,10 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
         />
       </section>
 
-      <!-- 黑名单侧栏：跟随视口固定，不随列表滑动 -->
-      <aside class="lg:sticky lg:top-8 lg:self-start">
+      <!-- 黑名单侧栏：跟随视口固定，不随列表滑动；整栏限高内部滚动兜底 -->
+      <aside
+        class="scrollbar-slim lg:sticky lg:top-8 lg:max-h-[calc(100dvh-4rem)] lg:overscroll-contain lg:self-start lg:overflow-y-auto"
+      >
         <AppSurface tone="glass" as="section" class="p-5">
           <div class="flex items-center gap-2">
             <svg
@@ -266,7 +270,10 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
             </AppButton>
           </div>
 
-          <ul v-if="store.blacklistedPlates.length" class="mt-5 space-y-2">
+          <ul
+            v-if="store.blacklistedPlates.length"
+            class="scrollbar-slim mt-5 max-h-[40vh] space-y-2 overflow-y-auto pr-1"
+          >
             <li
               v-for="plate in store.blacklistedPlates"
               :key="plate"
@@ -289,6 +296,8 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
 
           <p v-else class="mt-5 text-caption text-ink-faint">还没有加入黑名单的车辆。</p>
         </AppSurface>
+
+        <BlacklistQuickRemove />
       </aside>
     </div>
   </main>

@@ -160,6 +160,25 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 细滚动条外观：配限高后内部滚动的列表使用，颜色取自既有 ink-faint token */
+@utility scrollbar-slim {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--color-ink-faint) 70%, transparent) transparent;
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    border-radius: var(--radius-pill);
+    background-color: color-mix(in oklab, var(--color-ink-faint) 70%, transparent);
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-ink-faint);
+  }
+}
+
 @layer components {
   /* 路由切换：页面左右滑动过渡（AppShell 内按导航方向切换 left/right 类名） */
   .page-slide-right-enter-active,

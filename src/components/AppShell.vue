@@ -29,7 +29,8 @@ watch(
 <template>
   <div class="min-h-dvh">
     <AppSidebar />
-    <main class="relative ml-20 min-h-dvh overflow-hidden">
+    <!-- overflow-x-clip 只裁水平位移（路由滑动），不会像 overflow-hidden 那样创建滚动容器、破坏页内 position: sticky -->
+    <main class="relative ml-20 min-h-dvh overflow-x-clip">
       <RouterView v-slot="{ Component }">
         <Transition :name="transitionName" mode="out-in">
           <component :is="Component" :key="route.path" />
