@@ -70,3 +70,4 @@ skills-lock.json
 *.csv
 .zcode/
 scripts/seed.sql
+.zcodeignore

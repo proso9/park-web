@@ -220,16 +220,29 @@ export const useParkStore = defineStore('park', () => {
 
   // ===== 状态变更操作（写库后同步刷新已加载的聚合数据） =====
 
-  /** 就地替换一条记录（明细 / 最近动态 / 分组明细） */
+  /** 替换一条记录（明细 / 最近动态 / 分组明细）。写时拷贝：这些列表与 SWR 缓存条目同引用，不能就地改，否则会污染缓存。 */
   function applyRecordPatch(next: AnomalyRecord) {
-    const patchList = (list: AnomalyRecord[]) => {
+    const patch = (list: AnomalyRecord[]): AnomalyRecord[] => {
       const index = list.findIndex((r) => r.id === next.id)
-      if (index >= 0) list.splice(index, 1, next)
+      if (index < 0) return list
+      const copy = list.slice()
+      copy.splice(index, 1, next)
+      return copy
     }
-    patchList(records.value)
-    if (overview.value) patchList(overview.value.recent)
+    records.value = patch(records.value)
+    if (overview.value) {
+      const recent = patch(overview.value.recent)
+      if (recent !== overview.value.recent) overview.value = { ...overview.value, recent }
+    }
     if (plateGroups.value) {
-      for (const group of plateGroups.value.groups) patchList(group.records)
+      let changed = false
+      const groups = plateGroups.value.groups.map((group) => {
+        const groupRecords = patch(group.records)
+        if (groupRecords === group.records) return group
+        changed = true
+        return { ...group, records: groupRecords }
+      })
+      if (changed) plateGroups.value = { ...plateGroups.value, groups }
     }
   }
 
