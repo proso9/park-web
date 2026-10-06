@@ -250,6 +250,24 @@ export const useParkStore = defineStore('park', () => {
     return changed
   }
 
+  /** 审批页待提交队列的一次性提交：串行执行全部车牌动作，结束后只刷新一次 */
+  async function applyPlateActions(
+    actions: { plate: string; to: RecordStatus; from?: RecordStatus; remark?: string }[],
+  ): Promise<number> {
+    let changed = 0
+    for (const action of actions) {
+      const result = await api.setPlateStatus(action.plate, {
+        to: action.to,
+        from: action.from,
+        remark: action.remark,
+      })
+      changed += result.changed
+    }
+    // 全部成功才走到这里；中途失败会抛错，由页面保留队列重试
+    await refreshAfterMutation()
+    return changed
+  }
+
   /** 拉取全部已处理（status=1）记录，供导出黑名单 CSV（分页拉全量） */
   async function fetchBlacklistRecords(): Promise<AnomalyRecord[]> {
     const rows: AnomalyRecord[] = []
@@ -298,6 +316,7 @@ export const useParkStore = defineStore('park', () => {
     toggleBlacklist,
     toggleRemove,
     removePlates,
+    applyPlateActions,
     fetchBlacklistRecords,
   }
 })

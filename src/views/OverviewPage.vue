@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useParkStore } from '@/stores/park'
-import { AppDatePicker, AppEmpty, AppSurface, StatusDot, TrendMark } from '@/components/ui'
+import { AppEmpty, AppSurface, StatusDot, TrendMark } from '@/components/ui'
 import type { AnomalyRecord } from '@/data/types'
 
 const store = useParkStore()
@@ -35,16 +35,54 @@ const greeting = (() => {
 })()
 const dateLine = `${now.getFullYear()} 年 ${now.getMonth() + 1} 月 ${now.getDate()} 日 · 星期${WEEKDAY_NAMES[now.getDay()]}`
 
-// ===== 日期范围筛选（右上角）→ /api/overview 请求参数 =====
-const dateRange = ref<readonly [string, string] | null>(null)
+// ===== 时间档位（近3天 / 近7天 / 近1月）：始终带日期范围请求，避免无界全表聚合 =====
+const spanOptions = [
+  { key: '3d', label: '近3天', days: 3 },
+  { key: '7d', label: '近7天', days: 7 },
+  { key: '30d', label: '近1月', days: 30 },
+] as const
+type SpanKey = (typeof spanOptions)[number]['key']
+const span = ref<SpanKey>('7d')
 
-onMounted(() => {
-  void store.fetchOverview(dateRange.value?.[0], dateRange.value?.[1])
+function toISODate(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/** 当前档位的日期范围：含今天、往回 days-1 天 */
+const spanRange = computed<[string, string]>(() => {
+  const days = spanOptions.find((o) => o.key === span.value)?.days ?? 7
+  const from = new Date()
+  from.setDate(from.getDate() - (days - 1))
+  return [toISODate(from), toISODate(now)]
 })
 
-watch(dateRange, () => {
-  void store.fetchOverview(dateRange.value?.[0], dateRange.value?.[1])
-})
+function fetchWithSpan() {
+  const [from, to] = spanRange.value
+  void store.fetchOverview(from, to)
+}
+
+watch(span, fetchWithSpan)
+
+/** 档位滑块：跟随激活项弹簧平移（同图表样式切换器模式） */
+const spanIndicator = ref({ left: '0px', width: '0px', ready: false })
+const spanBtnEls = new Map<SpanKey, HTMLElement>()
+
+function setSpanBtnRef(key: SpanKey, el: unknown) {
+  const node = el as HTMLElement | null
+  if (node) spanBtnEls.set(key, node)
+  else spanBtnEls.delete(key)
+}
+
+function updateSpanIndicator() {
+  const el = spanBtnEls.get(span.value)
+  if (!el) return
+  spanIndicator.value = { left: `${el.offsetLeft}px`, width: `${el.offsetWidth}px`, ready: true }
+}
+
+watch(span, () => nextTick(updateSpanIndicator))
 
 const kpi = computed(() => store.overview?.kpi ?? null)
 const days = computed(() => store.overview?.daily ?? [])
@@ -249,8 +287,10 @@ const totalPlates = computed(() => store.overview?.plateStats.length ?? 0)
 // ===== 入场动画：卡片渐显上浮 + 柱状图 / 标签条生长 =====
 const shown = ref(false)
 onMounted(() => {
+  fetchWithSpan()
   requestAnimationFrame(() => requestAnimationFrame(() => (shown.value = true)))
   updateIndicator()
+  updateSpanIndicator()
   revealChart()
 })
 </script>
@@ -270,8 +310,32 @@ onMounted(() => {
           >
         </p>
       </div>
-      <div class="w-full sm:w-80">
-        <AppDatePicker v-model="dateRange" mode="range" placeholder="全部日期" />
+      <div class="w-full sm:w-auto">
+        <div
+          class="relative inline-flex items-center rounded-pill border border-stroke bg-foam/60 p-1"
+          role="group"
+          aria-label="时间范围"
+        >
+          <!-- 滑动色块：跟随激活档位弹簧平移 -->
+          <span
+            class="pointer-events-none absolute inset-y-1 rounded-pill bg-accent-mist transition-[left,width,opacity] ease-spring duration-[var(--duration-spring)]"
+            :class="spanIndicator.ready ? 'opacity-100' : 'opacity-0'"
+            :style="{ left: spanIndicator.left, width: spanIndicator.width }"
+            aria-hidden="true"
+          />
+          <button
+            v-for="opt in spanOptions"
+            :key="opt.key"
+            :ref="(el) => setSpanBtnRef(opt.key, el)"
+            type="button"
+            class="relative rounded-pill px-3.5 py-1.5 text-caption font-medium transition-colors duration-[var(--duration-spring)] ease-spring"
+            :class="span === opt.key ? 'text-accent-deep' : 'text-ink-muted hover:text-ink-soft'"
+            :aria-pressed="span === opt.key"
+            @click="span = opt.key"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
       </div>
     </header>
 
@@ -653,8 +717,8 @@ onMounted(() => {
     <AppEmpty
       v-else
       :icon="ICON.clock"
-      title="该日期范围内暂无记录"
-      hint="试试调整右上角的日期范围，或清空筛选查看全部数据"
+      title="该时间范围内暂无记录"
+      hint="试试切换右上角的时间档位（近1月覆盖最久），更早的历史请到明细页查看"
     />
   </main>
 </template>

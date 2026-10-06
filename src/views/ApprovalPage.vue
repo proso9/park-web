@@ -27,6 +27,7 @@ const ICON = {
   alert: '<circle cx="12" cy="12" r="8.5"/><path d="M12 8v4.5"/><path d="M12 16h.01"/>',
   chevron: '<path d="M6 9l6 6 6-6"/>',
   x: '<path d="M18 6L6 18"/><path d="M6 6l12 12"/>',
+  check: '<path d="M20 6L9 17l-5-5"/>',
 } as const
 
 // ===== 日期范围筛选（AppDatePicker，range 模式）→ /api/plate-groups 参数 =====
@@ -71,14 +72,45 @@ function groupStatus(g: { processed: number; misreported: number; count: number 
   return 0
 }
 
-// ===== 操作（可再点恢复）；误报（移除）必须填备注 =====
-function toggleBlacklist(plate: string) {
-  void store.toggleBlacklist(plate)
+// ===== 待提交队列：动作先入队（同车牌覆盖、再点取消），统一由底部提交栏落库 =====
+type PendingAction = 'blacklist' | 'unblacklist' | 'remove' | 'restore'
+
+const PENDING_LABELS: Record<PendingAction, string> = {
+  blacklist: '加入黑名单',
+  unblacklist: '移出黑名单',
+  remove: '移除（误报）',
+  restore: '恢复',
+}
+
+const pending = ref(new Map<string, { action: PendingAction; remark?: string }>())
+
+/** 由当前库内状态推导目标动作；同车牌再点同一动作 = 取消，不同动作 = 覆盖 */
+function queueAction(plate: string, action: PendingAction, remark?: string) {
+  const map = new Map(pending.value)
+  if (map.get(plate)?.action === action) map.delete(plate)
+  else map.set(plate, { action, remark })
+  pending.value = map
+}
+
+function onBlacklistClick(g: { carNumber: string; processed: number }) {
+  queueAction(g.carNumber, g.processed > 0 ? 'unblacklist' : 'blacklist')
+}
+
+function onRemoveClick(g: {
+  carNumber: string
+  processed: number
+  count: number
+  misreported: number
+}) {
+  if (groupStatus(g) === 2) {
+    queueAction(g.carNumber, 'restore')
+    return
+  }
+  askRemove(g.carNumber)
 }
 
 const removingPlate = ref<string | null>(null)
 const removingRemark = ref('')
-const removingBusy = ref(false)
 const removingError = ref('')
 
 function askRemove(plate: string) {
@@ -96,19 +128,56 @@ const removingInvalid = computed(
   () => removingPlate.value !== null && removingRemark.value.trim() === '',
 )
 
-async function confirmRemove() {
+/** 移除确认 → 入队（不直接落库），误报必填备注 */
+function confirmRemove() {
   const plate = removingPlate.value
-  if (!plate || removingInvalid.value || removingBusy.value) return
-  removingBusy.value = true
-  removingError.value = ''
+  if (!plate || removingInvalid.value) return
+  queueAction(plate, 'remove', removingRemark.value.trim())
+  cancelRemove()
+}
+
+// ===== 提交 / 放弃 =====
+const committing = ref(false)
+const commitError = ref('')
+const commitMsg = ref('')
+
+async function commitPending() {
+  if (committing.value || pending.value.size === 0) return
+  committing.value = true
+  commitError.value = ''
   try {
-    await store.toggleRemove(plate, removingRemark.value.trim())
-    cancelRemove()
+    const actions = [...pending.value.entries()].map(([plate, p]) => ({
+      plate,
+      to: (p.action === 'blacklist'
+        ? 1
+        : p.action === 'unblacklist'
+          ? 0
+          : p.action === 'remove'
+            ? 2
+            : 0) as RecordStatus,
+      from: (p.action === 'blacklist'
+        ? 0
+        : p.action === 'unblacklist'
+          ? 1
+          : p.action === 'restore'
+            ? 2
+            : undefined) as RecordStatus | undefined,
+      remark: p.remark,
+    }))
+    const changed = await store.applyPlateActions(actions)
+    commitMsg.value = `已提交 ${actions.length} 台车辆的审批，更新 ${changed} 条记录`
+    pending.value = new Map()
+    window.setTimeout(() => (commitMsg.value = ''), 3200)
   } catch (err) {
-    removingError.value = err instanceof Error ? err.message : '移除失败'
+    commitError.value = err instanceof Error ? err.message : '提交失败，请重试'
   } finally {
-    removingBusy.value = false
+    committing.value = false
   }
+}
+
+function discardPending() {
+  pending.value = new Map()
+  commitError.value = ''
 }
 
 // ===== 记录明细默认收纳，点击展开 =====
@@ -158,7 +227,7 @@ const timePart = (value: string | null) => (value ? value.slice(11, 16) : '—')
     <header class="mb-8 max-w-xl space-y-2">
       <h1 class="text-title font-bold text-ink">车辆审批</h1>
       <p class="text-body text-ink-soft">
-        对异常车辆逐台审批：加入黑名单（标记已处理，可一键导出黑名单信息）或移除（标记误报，需填写备注原因）。
+        对异常车辆逐台审批：加入黑名单（标记已处理）或移除（标记误报，需填写备注原因）。动作先入待提交队列，点击底部「提交更改」一次性落库。
       </p>
     </header>
 
@@ -234,13 +303,17 @@ const timePart = (value: string | null) => (value ? value.slice(11, 16) : '—')
               }}</span>
               <span class="text-caption text-ink-muted">{{ g.count }} 条记录</span>
               <AppStatusChip :status="groupStatus(g)" />
+              <!-- 待提交徽标：动作已入队，尚未落库 -->
+              <span v-if="pending.get(g.carNumber)" class="chip">
+                待提交：{{ PENDING_LABELS[pending.get(g.carNumber)!.action] }}
+              </span>
               <div class="ml-auto flex gap-2" @click.stop>
                 <AppButton
                   :tone="groupStatus(g) === 1 ? 'soft' : 'danger'"
                   small
                   :icon="groupStatus(g) === 1 ? ICON.shield : ICON.ban"
                   :disabled="groupStatus(g) === 2"
-                  @click="toggleBlacklist(g.carNumber)"
+                  @click="onBlacklistClick(g)"
                 >
                   {{ groupStatus(g) === 1 ? '移出黑名单' : '加入黑名单' }}
                 </AppButton>
@@ -248,18 +321,14 @@ const timePart = (value: string | null) => (value ? value.slice(11, 16) : '—')
                   :tone="groupStatus(g) === 2 ? 'primary' : 'ghost'"
                   small
                   :icon="groupStatus(g) === 2 ? ICON.undo : ICON.trash"
-                  @click="
-                    groupStatus(g) === 2
-                      ? void store.toggleRemove(g.carNumber)
-                      : askRemove(g.carNumber)
-                  "
+                  @click="onRemoveClick(g)"
                 >
                   {{ groupStatus(g) === 2 ? '恢复' : '移除' }}
                 </AppButton>
               </div>
             </div>
 
-            <!-- 移除确认：误报必须填写备注原因（落库到 remark） -->
+            <!-- 移除确认：误报必须填写备注原因（随队列统一落库） -->
             <div
               v-if="removingPlate === g.carNumber"
               class="mt-4 rounded-control border border-stroke bg-accent-mist/20 p-4"
@@ -281,10 +350,10 @@ const timePart = (value: string | null) => (value ? value.slice(11, 16) : '—')
                   tone="danger"
                   small
                   :icon="ICON.trash"
-                  :disabled="removingInvalid || removingBusy"
+                  :disabled="removingInvalid"
                   @click="confirmRemove"
                 >
-                  确认移除
+                  加入待提交
                 </AppButton>
                 <AppButton tone="ghost" small :icon="ICON.x" @click="cancelRemove">取消</AppButton>
               </div>
@@ -403,6 +472,45 @@ const timePart = (value: string | null) => (value ? value.slice(11, 16) : '—')
         <BlacklistQuickRemove />
       </aside>
     </div>
+
+    <!-- 待提交栏：动作入队后弹簧滑入，统一提交避免高频写库 -->
+    <Transition name="commit-bar">
+      <AppSurface
+        v-if="pending.size > 0"
+        tone="strong"
+        class="sticky bottom-4 z-30 mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 p-4"
+      >
+        <span class="inline-flex items-center gap-2">
+          <StatusDot tone="warn" />
+          <span class="text-body font-semibold text-ink"> {{ pending.size }} 台车辆待提交 </span>
+          <span class="text-caption text-ink-muted">
+            {{ [...pending.values()].map((p) => PENDING_LABELS[p.action]).join(' · ') }}
+          </span>
+        </span>
+        <div class="ml-auto flex items-center gap-2">
+          <AppButton
+            tone="ghost"
+            small
+            :icon="ICON.x"
+            :disabled="committing"
+            @click="discardPending"
+          >
+            放弃
+          </AppButton>
+          <AppButton
+            tone="primary"
+            small
+            :icon="ICON.check"
+            :disabled="committing"
+            @click="commitPending"
+          >
+            {{ committing ? '提交中…' : '提交更改' }}
+          </AppButton>
+        </div>
+        <p v-if="commitError" class="w-full text-caption text-status-alert">{{ commitError }}</p>
+        <p v-else-if="commitMsg" class="w-full text-caption text-status-ok">{{ commitMsg }}</p>
+      </AppSurface>
+    </Transition>
   </main>
 </template>
 
@@ -419,5 +527,23 @@ const timePart = (value: string | null) => (value ? value.slice(11, 16) : '—')
 .records-wrap > ul {
   min-height: 0;
   overflow: hidden;
+}
+
+/* 提交栏滑入滑出：位移用线性弹簧，与全站动效同一套曲线 */
+.commit-bar-enter-active,
+.commit-bar-leave-active {
+  transition:
+    opacity var(--duration-spring) var(--ease-spring),
+    transform var(--duration-spring) var(--ease-spring);
+}
+.commit-bar-enter-from,
+.commit-bar-leave-to {
+  opacity: 0;
+  transform: translateY(18px);
+}
+.commit-bar-enter-to,
+.commit-bar-leave-from {
+  opacity: 1;
+  transform: translateY(0);
 }
 </style>

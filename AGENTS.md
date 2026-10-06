@@ -71,6 +71,7 @@ worker/
 migrations/
   0000_schema.sql          # anomalies 建表（IF NOT EXISTS，与上游一致，远端已有表则无操作）
   0001_indexes.sql         # exit_time / car_number / status 三个索引
+  0002_log_date_index.sql  # log_date 索引（日期是筛选最高优先条件）
 scripts/
   seed-local.mjs           # CSV → 本地 D1 种子脚本（npm run seed）
   seed-data/               # 种子 CSV（*.csv 已 gitignore，本地保留）
@@ -99,9 +100,9 @@ src/
     types.ts               # 领域类型：AnomalyRecord、RecordStatus、OverviewData、PlateStat 等（worker 复用）
   views/
     StyleGuide.vue         # `/style-guide` 抽象视觉标本，不是产品页
-    OverviewPage.vue       # 概览仪表盘：/api/overview 驱动 —— 问候 + 日期范围筛选 + KPI 卡片（前后半期趋势） / 每日分布图（柱状 / 折线可切换） / 运营指标四宫格 / 最近动态 / 重点车辆标签统计
+    OverviewPage.vue       # 概览仪表盘：/api/overview 驱动 —— 问候 + 时间档位切换（近3天/近7天/近1月，滑动色块，始终带日期范围请求） + KPI 卡片（前后半期趋势） / 每日分布图（柱状 / 折线可切换） / 运营指标四宫格 / 最近动态 / 重点车辆标签统计（全量聚合，不随档位变化）
     DetailsPage.vue        # 明细：筛选折叠（车牌/日期范围/状态/可疑/缺入场）+ 服务端分页表格 + 行内处理（状态下拉 + 备注，误报必填原因）
-    ApprovalPage.vue       # 审批：日期范围 + 车牌分组分页（/api/plate-groups）+ 加入黑名单/误报移除/恢复 + 黑名单 CSV 导出 + 快速移除面板
+    ApprovalPage.vue       # 审批：日期范围 + 车牌分组分页（/api/plate-groups）+ 加入黑名单/误报移除/恢复（动作先入待提交队列，底部粘性提交栏一次性落库，串行执行后统一刷新） + 黑名单 CSV 导出 + 快速移除面板
     SettingsPage.vue       # 设置：可调概览页「屡次异常 / 高额欠费」判定阈值（基于服务端车牌聚合实时预演）
   App.vue                  # 只包一层 AppAtmosphere，内置 AppShell
   router/index.ts
@@ -123,7 +124,7 @@ index.html                 # 引入 Plus Jakarta Sans
 1. **只允许 UPDATE `status` 和 `remark` 两个字段**；`id / log_date / log_file / entry_time / exit_time / car_number / fee / is_suspicious / dedup_key / created_at` 一律只读（`dedup_key` 是上游幂等键，绝不可改删）。Worker 的 PATCH 接口已做白名单，别加字段。
 2. **状态映射**（`RecordStatus`，即 D1 `status`）：`0` 未处理、`1` 已处理（= 旧「黑名单」，`/api/plates?all=1` 的 `blacklisted` 就是 status=1 的车牌）、`2` 误报（= 旧「移除」，**必填备注原因**写入 `remark`）。UI 胶囊用 `<AppStatusChip :status="0|1|2">`。
 3. `entry_time` / `fee` 为 NULL 是正常业务状态，前端显示 `-`/`—`；`created_at` 是 UTC，展示需转 +8；时间都是 `YYYY-MM-DD HH:MM:SS` 文本，排序直接按字符串。
-4. **分页与额度**：列表接口 `pageSize` 上限 50、审批分组上限 20；所有查询参数化绑定（`prepare().bind()`），模糊搜索用 `car_number LIKE ?`；不做高频轮询。单次查询绑定参数 ≤ 100。
+4. **分页与额度**：列表接口 `pageSize` 上限 50、审批分组上限 20；所有查询参数化绑定（`prepare().bind()`），模糊搜索用 `car_number LIKE ?`；不做高频轮询。单次查询绑定参数 ≤ 100。**概览页始终携带日期范围**（时间档位：近3天/近7天/近1月，默认近7天），不允许无界全表聚合；审批页动作用待提交队列批量落库，避免高频写。
 5. 前端 localStorage 只存 `park:settings`（概览阈值）；旧的 `park:approval-state` 已废弃（审批状态在数据库里）。
 6. 本地 dev 用 `npm run seed` 灌种子数据（`scripts/seed-data/*.csv` → 本地 Miniflare SQLite）；**不要 seed 远端**，远端数据只属于上游工具。
 
