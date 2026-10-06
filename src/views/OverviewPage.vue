@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useParkStore } from '@/stores/park'
 import { AppDatePicker, AppEmpty, AppSurface, StatusDot, TrendMark } from '@/components/ui'
-import type { AbnormalVehicle, ApprovalStatus } from '@/data/types'
+import type { AnomalyRecord } from '@/data/types'
 
 const store = useParkStore()
 
@@ -11,11 +11,14 @@ const ICON = {
   list: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3.5 6h.01"/><path d="M3.5 12h.01"/><path d="M3.5 18h.01"/>',
   alert: '<circle cx="12" cy="12" r="8.5"/><path d="M12 8v4.5"/><path d="M12 16h.01"/>',
   car: '<rect x="3" y="8" width="18" height="9" rx="2.5"/><circle cx="7.5" cy="17" r="1.6"/><circle cx="16.5" cy="17" r="1.6"/>',
-  wallet: '<path d="M3 7a2 2 0 012-2h12a2 2 0 012 2"/><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2v-6a2 2 0 00-2-2H3z"/><path d="M16 14h2"/>',
+  wallet:
+    '<path d="M3 7a2 2 0 012-2h12a2 2 0 012 2"/><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2v-6a2 2 0 00-2-2H3z"/><path d="M16 14h2"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 8v4l2.5 2.5"/>',
-  percent: '<path d="M19 5L5 19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
+  percent:
+    '<path d="M19 5L5 19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
   peak: '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
-  calendar: '<rect x="3.5" y="5" width="17" height="16" rx="2.5"/><path d="M3.5 10h17"/><path d="M8 3v4"/><path d="M16 3v4"/>',
+  calendar:
+    '<rect x="3.5" y="5" width="17" height="16" rx="2.5"/><path d="M3.5 10h17"/><path d="M8 3v4"/><path d="M16 3v4"/>',
 } as const
 
 // ===== 问候语与日期行 =====
@@ -32,50 +35,33 @@ const greeting = (() => {
 })()
 const dateLine = `${now.getFullYear()} 年 ${now.getMonth() + 1} 月 ${now.getDate()} 日 · 星期${WEEKDAY_NAMES[now.getDay()]}`
 
-// ===== 日期范围筛选（右上角） =====
+// ===== 日期范围筛选（右上角）→ /api/overview 请求参数 =====
 const dateRange = ref<readonly [string, string] | null>(null)
 
-const sorted = computed(() => [...store.sourceRecords].sort((a, b) => a.date.localeCompare(b.date)))
-
-const records = computed(() => {
-  const range = dateRange.value
-  if (!range) return sorted.value
-  return sorted.value.filter((r) => r.date >= range[0] && r.date <= range[1])
+onMounted(() => {
+  void store.fetchOverview(dateRange.value?.[0], dateRange.value?.[1])
 })
 
-/** 窗口内出现过的日期（升序） */
-const days = computed(() => [...new Set(records.value.map((r) => r.date))].sort())
-const lastDate = computed(() => days.value[days.value.length - 1] ?? '')
+watch(dateRange, () => {
+  void store.fetchOverview(dateRange.value?.[0], dateRange.value?.[1])
+})
 
-// ===== 趋势：窗口内日期对半分，后半段 vs 前半段 =====
-const splitAt = computed(() => Math.floor(days.value.length / 2))
-const earlyDays = computed(() => days.value.slice(0, splitAt.value))
-const lateDays = computed(() => days.value.slice(splitAt.value))
+const kpi = computed(() => store.overview?.kpi ?? null)
+const days = computed(() => store.overview?.daily ?? [])
+const lastDate = computed(() => {
+  const list = days.value
+  return list.length ? list[list.length - 1]!.logDate : ''
+})
+const hasData = computed(() => (kpi.value?.total ?? 0) > 0)
 
-function recordsOn(ds: string[]): AbnormalVehicle[] {
-  const set = new Set(ds)
-  return records.value.filter((r) => set.has(r.date))
-}
-
-function statsOf(list: AbnormalVehicle[]) {
-  return {
-    count: list.length,
-    abnormal: list.filter((r) => r.abnormal).length,
-    plates: new Set(list.map((r) => r.plate)).size,
-    fee: list.reduce((sum, r) => sum + r.fee, 0),
-  }
-}
-
-const windowStats = computed(() => statsOf(records.value))
-const lateStats = computed(() => statsOf(recordsOn(lateDays.value)))
-const earlyStats = computed(() => statsOf(recordsOn(earlyDays.value)))
-
+// ===== 趋势：窗口内日期对半分，后半段 vs 前半段（两段 KPI 由 store 预取） =====
 interface KpiTrend {
   up: boolean | null
   text: string
 }
 
-function makeTrend(cur: number, prev: number): KpiTrend {
+function makeTrend(cur: number | null, prev: number | null): KpiTrend {
+  if (cur === null || prev === null) return { up: null, text: '—' }
   if (prev === 0) return cur === 0 ? { up: null, text: '—' } : { up: true, text: '新增' }
   const pct = ((cur - prev) / prev) * 100
   if (Math.abs(pct) < 0.05) return { up: null, text: '持平' }
@@ -86,24 +72,25 @@ const formatFee = (fee: number) => `¥${fee.toLocaleString('zh-CN', { maximumFra
 
 // ===== KPI 卡片 =====
 const kpis = computed(() => {
-  const w = windowStats.value
-  const c = lateStats.value
-  const p = earlyStats.value
+  const w = kpi.value
+  if (!w) return []
+  const l = store.lateKpi
+  const e = store.earlyKpi
   return [
     {
       key: 'count',
       label: '记录总数',
       icon: ICON.list,
-      value: String(w.count),
-      trend: makeTrend(c.count, p.count),
+      value: String(w.total),
+      trend: makeTrend(l?.total ?? null, e?.total ?? null),
       favorableDown: false,
     },
     {
-      key: 'abnormal',
-      label: '异常记录',
+      key: 'suspicious',
+      label: '可疑记录',
       icon: ICON.alert,
-      value: String(w.abnormal),
-      trend: makeTrend(c.abnormal, p.abnormal),
+      value: String(w.suspicious),
+      trend: makeTrend(l?.suspicious ?? null, e?.suspicious ?? null),
       favorableDown: true,
     },
     {
@@ -111,33 +98,29 @@ const kpis = computed(() => {
       label: '涉及车辆',
       icon: ICON.car,
       value: String(w.plates),
-      trend: makeTrend(c.plates, p.plates),
+      trend: makeTrend(l?.plates ?? null, e?.plates ?? null),
       favorableDown: false,
     },
     {
       key: 'fee',
       label: '费用合计',
       icon: ICON.wallet,
-      value: formatFee(w.fee),
-      trend: makeTrend(c.fee, p.fee),
+      value: formatFee(w.feeSum),
+      trend: makeTrend(l?.feeSum ?? null, e?.feeSum ?? null),
       favorableDown: false,
     },
   ]
 })
 
-// ===== 每日记录柱状图 =====
+// ===== 每日记录柱状图（/api/overview 的 daily 聚合） =====
 const daily = computed(() =>
-  days.value.map((date) => {
-    const list = records.value.filter((r) => r.date === date)
-    const abnormal = list.filter((r) => r.abnormal).length
-    return {
-      date,
-      label: date.slice(5).replace('-', '/'),
-      total: list.length,
-      abnormal,
-      normal: list.length - abnormal,
-    }
-  }),
+  days.value.map((d) => ({
+    date: d.logDate,
+    label: d.logDate.slice(5).replace('-', '/'),
+    total: d.total,
+    abnormal: d.suspicious,
+    normal: d.total - d.suspicious,
+  })),
 )
 const maxDaily = computed(() => Math.max(1, ...daily.value.map((d) => d.total)))
 const barPct = (v: number) => `${((v / maxDaily.value) * 100).toFixed(2)}%`
@@ -184,15 +167,25 @@ const linePoints = (values: number[]) =>
     .map((v, i) => `${(i + 0.5).toFixed(2)},${(100 - (v / maxDaily.value) * 100).toFixed(2)}`)
     .join(' ')
 
-// ===== 运营指标四宫格 =====
+// ===== 运营指标四宫格（全部来自 KPI 聚合） =====
 const metrics = computed(() => {
-  const w = windowStats.value
-  const n = w.count
-  const maxFee = records.value.reduce((m, r) => Math.max(m, r.fee), 0)
+  const w = kpi.value
+  const n = w?.total ?? 0
+  const feeSum = w?.feeSum ?? 0
+  const suspicious = w?.suspicious ?? 0
+  const maxFee = w?.feeMax
   return [
-    { label: '异常率', icon: ICON.percent, value: n ? `${((w.abnormal / n) * 100).toFixed(1)}%` : '—' },
-    { label: '平均费用', icon: ICON.wallet, value: n ? formatFee(w.fee / n) : '—' },
-    { label: '单笔最高', icon: ICON.peak, value: n ? formatFee(maxFee) : '—' },
+    {
+      label: '可疑率',
+      icon: ICON.percent,
+      value: n ? `${((suspicious / n) * 100).toFixed(1)}%` : '—',
+    },
+    { label: '平均费用', icon: ICON.wallet, value: n ? formatFee(feeSum / n) : '—' },
+    {
+      label: '单笔最高',
+      icon: ICON.peak,
+      value: maxFee !== null && maxFee !== undefined && n ? formatFee(maxFee) : '—',
+    },
     {
       label: '日均记录',
       icon: ICON.calendar,
@@ -201,45 +194,42 @@ const metrics = computed(() => {
   ]
 })
 
-// ===== 最近动态（窗口内最新记录） =====
-function describeRecord(r: AbnormalVehicle): string {
-  if (r.entryTime && r.exitTime) return `入场 ${r.entryTime} · 出场 ${r.exitTime}`
-  if (r.entryTime) return `入场 ${r.entryTime} · 未出场`
-  if (r.exitTime) return `出场 ${r.exitTime} · 入场缺失`
+// ===== 最近动态（窗口内最新记录，服务端已排好序） =====
+const hhmm = (value: string | null) => (value ? value.slice(11, 16) : null)
+
+function describeRecord(r: AnomalyRecord): string {
+  const entry = hhmm(r.entryTime)
+  const exit = hhmm(r.exitTime)
+  if (entry && exit) return `入场 ${entry} · 出场 ${exit}`
+  if (entry) return `入场 ${entry} · 出场缺失`
+  if (exit) return `出场 ${exit} · 入场缺失`
   return '出入场时间缺失'
 }
 
-const recordTime = (r: AbnormalVehicle) => (r.exitTime ?? r.entryTime ?? '').slice(0, 5)
+const recordTime = (r: AnomalyRecord) => hhmm(r.exitTime) ?? ''
 
-const activities = computed(() =>
-  [...records.value]
-    .sort(
-      (a, b) =>
-        b.date.localeCompare(a.date) ||
-        (b.exitTime ?? b.entryTime ?? '').localeCompare(a.exitTime ?? a.entryTime ?? ''),
-    )
-    .slice(0, 6),
-)
+const activities = computed(() => store.overview?.recent ?? [])
 
-// ===== 重点车辆标签统计（按车牌聚合，不随日期筛选变化） =====
-function statusOfPlate(rs: AbnormalVehicle[]): ApprovalStatus {
-  if (rs.some((r) => store.statusOf(r) === 'blacklisted')) return 'blacklisted'
-  if (rs.length > 0 && rs.every((r) => store.statusOf(r) === 'removed')) return 'removed'
-  return 'pending'
-}
+// 最近动态里的黑名单标记：plateStats 中有已处理（status=1）记录的车牌
+const blacklistedSet = computed(() => {
+  const set = new Set<string>()
+  for (const p of store.overview?.plateStats ?? []) {
+    if (p.processed > 0) set.add(p.carNumber)
+  }
+  return set
+})
 
+// ===== 重点车辆标签统计（plateStats 全量聚合，不随日期筛选变化） =====
 const plateTags = computed(() => {
-  const all = store.sourceRecords
-  const plates = [...new Set(all.map((r) => r.plate))].filter((p) => p && p !== '-')
-  const byPlate = (p: string) => all.filter((r) => r.plate === p)
-  const total = plates.length
+  const stats = store.overview?.plateStats ?? []
+  const total = stats.length
 
-  const blacklisted = plates.filter((p) => store.isBlacklisted(p))
-  const pending = plates.filter((p) => statusOfPlate(byPlate(p)) === 'pending')
-  const repeat = plates.filter((p) => byPlate(p).filter((r) => r.abnormal).length >= store.repeatThreshold)
-  const highFee = plates.filter((p) => byPlate(p).reduce((sum, r) => sum + r.fee, 0) >= store.highFeeThreshold)
+  const blacklisted = stats.filter((p) => p.processed > 0)
+  const unprocessed = stats.filter((p) => p.unprocessed > 0)
+  const repeat = stats.filter((p) => p.suspicious >= store.repeatThreshold)
+  const highFee = stats.filter((p) => p.feeSum >= store.highFeeThreshold)
 
-  const mk = (label: string, colorCls: string, list: string[]) => ({
+  const mk = (label: string, colorCls: string, list: typeof stats) => ({
     label,
     colorCls,
     count: list.length,
@@ -250,13 +240,11 @@ const plateTags = computed(() => {
     mk('黑名单', 'bg-status-alert', blacklisted),
     mk('屡次异常', 'bg-accent-deep', repeat),
     mk('高额欠费', 'bg-mint', highFee),
-    mk('待审批', 'bg-status-warn', pending),
+    mk('未处理', 'bg-status-warn', unprocessed),
   ]
 })
 
-const totalPlates = computed(() =>
-  [...new Set(store.sourceRecords.map((r) => r.plate))].filter((p) => p && p !== '-').length,
-)
+const totalPlates = computed(() => store.overview?.plateStats.length ?? 0)
 
 // ===== 入场动画：卡片渐显上浮 + 柱状图 / 标签条生长 =====
 const shown = ref(false)
@@ -277,8 +265,9 @@ onMounted(() => {
           {{ greeting }}<span class="text-accent-gradient">。</span>
         </h1>
         <p class="text-body text-ink-soft">
-          停车场运行概览 · 当前范围 {{ records.length }} 条记录<template v-if="lastDate">
-            · 数据截至 {{ lastDate }}</template>
+          停车场运行概览 · 当前范围 {{ kpi?.total ?? 0 }} 条记录<template v-if="lastDate">
+            · 数据截至 {{ lastDate }}</template
+          >
         </p>
       </div>
       <div class="w-full sm:w-80">
@@ -286,7 +275,11 @@ onMounted(() => {
       </div>
     </header>
 
-    <template v-if="records.length">
+    <p v-if="store.overviewError" class="mt-6 text-caption text-status-alert">
+      {{ store.overviewError }}
+    </p>
+
+    <template v-if="hasData">
       <!-- KPI 数据卡片 -->
       <div class="mt-10 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
         <div
@@ -312,7 +305,9 @@ onMounted(() => {
 
             <div class="relative flex items-center justify-between gap-3">
               <span class="text-caption font-medium text-ink-muted">{{ k.label }}</span>
-              <span class="grid size-9 shrink-0 place-items-center rounded-control bg-accent-mist/70 text-accent-deep">
+              <span
+                class="grid size-9 shrink-0 place-items-center rounded-control bg-accent-mist/70 text-accent-deep"
+              >
                 <svg
                   viewBox="0 0 24 24"
                   class="size-4"
@@ -326,7 +321,9 @@ onMounted(() => {
                 />
               </span>
             </div>
-            <p class="relative mt-3 text-display font-extrabold tracking-display nums-tabular text-ink">
+            <p
+              class="relative mt-3 text-display font-extrabold tracking-display nums-tabular text-ink"
+            >
               {{ k.value }}
             </p>
             <div class="relative mt-3 flex items-center gap-2">
@@ -348,11 +345,7 @@ onMounted(() => {
 
       <!-- 柱状图表 + 指标四宫格 -->
       <div class="mt-6 grid gap-6 lg:grid-cols-3">
-        <div
-          class="reveal lg:col-span-2"
-          :class="{ 'reveal-in': shown }"
-          style="--d: 280ms"
-        >
+        <div class="reveal lg:col-span-2" :class="{ 'reveal-in': shown }" style="--d: 280ms">
           <AppSurface tone="glass" as="section" class="relative h-full overflow-hidden p-6">
             <span
               class="pointer-events-none absolute -right-16 -top-20 size-56 rounded-full bg-accent/15 blur-orb"
@@ -361,15 +354,15 @@ onMounted(() => {
             <div class="relative flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 class="text-heading font-semibold text-ink">每日记录分布</h2>
-                <p class="mt-0.5 text-caption text-ink-muted">按日期统计正常 / 异常记录条数</p>
+                <p class="mt-0.5 text-caption text-ink-muted">按日期统计一般 / 可疑记录条数</p>
               </div>
               <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <div class="flex items-center gap-4 text-micro text-ink-muted">
                   <span class="inline-flex items-center gap-1.5">
-                    <span class="size-2 rounded-full bg-accent" aria-hidden="true" />异常
+                    <span class="size-2 rounded-full bg-accent" aria-hidden="true" />可疑
                   </span>
                   <span class="inline-flex items-center gap-1.5">
-                    <span class="size-2 rounded-full bg-accent-muted" aria-hidden="true" />正常
+                    <span class="size-2 rounded-full bg-accent-muted" aria-hidden="true" />一般
                   </span>
                 </div>
                 <div
@@ -391,7 +384,9 @@ onMounted(() => {
                     type="button"
                     class="relative rounded-pill px-3 py-1 text-caption font-medium transition-colors duration-[var(--duration-spring)] ease-spring"
                     :class="
-                      chartType === opt.key ? 'text-accent-deep' : 'text-ink-muted hover:text-ink-soft'
+                      chartType === opt.key
+                        ? 'text-accent-deep'
+                        : 'text-ink-muted hover:text-ink-soft'
                     "
                     :aria-pressed="chartType === opt.key"
                     @click="chartType = opt.key"
@@ -412,8 +407,8 @@ onMounted(() => {
                 <div
                   class="relative h-40 w-full max-w-14"
                   role="img"
-                  :aria-label="`${d.date} 共 ${d.total} 条记录，其中异常 ${d.abnormal} 条`"
-                  :title="`${d.date} · 共 ${d.total} 条 / 异常 ${d.abnormal} 条`"
+                  :aria-label="`${d.date} 共 ${d.total} 条记录，其中可疑 ${d.abnormal} 条`"
+                  :title="`${d.date} · 共 ${d.total} 条 / 可疑 ${d.abnormal} 条`"
                 >
                   <!-- 圆角挂在当前最高的分段上：外层不再裁剪，否则只有顶满量程的柱子才有圆角 -->
                   <div class="absolute inset-0 flex flex-col justify-end">
@@ -487,8 +482,8 @@ onMounted(() => {
                     :key="d.date"
                     class="relative flex-1"
                     role="img"
-                    :aria-label="`${d.date} 共 ${d.total} 条记录，其中异常 ${d.abnormal} 条`"
-                    :title="`${d.date} · 共 ${d.total} 条 / 异常 ${d.abnormal} 条`"
+                    :aria-label="`${d.date} 共 ${d.total} 条记录，其中可疑 ${d.abnormal} 条`"
+                    :title="`${d.date} · 共 ${d.total} 条 / 可疑 ${d.abnormal} 条`"
                   >
                     <!-- 0 值也画点（贴基线收尾），否则折线终点会显得悬空；max 防止圆点被 clip-path 下缘裁掉 -->
                     <span
@@ -559,11 +554,7 @@ onMounted(() => {
 
       <!-- 最近动态 + 重点车辆标签统计 -->
       <div class="mt-6 grid gap-6 lg:grid-cols-3">
-        <div
-          class="reveal lg:col-span-2"
-          :class="{ 'reveal-in': shown }"
-          style="--d: 420ms"
-        >
+        <div class="reveal lg:col-span-2" :class="{ 'reveal-in': shown }" style="--d: 420ms">
           <AppSurface tone="glass" as="section" class="relative h-full overflow-hidden p-6">
             <span
               class="pointer-events-none absolute -left-20 -bottom-24 size-56 rounded-full bg-accent/10 blur-orb"
@@ -585,19 +576,22 @@ onMounted(() => {
             <ul class="relative mt-2 divide-y divide-stroke/60">
               <li
                 v-for="a in activities"
-                :key="`${a.date}~${a.plate}~${a.entryTime}~${a.exitTime}`"
+                :key="a.id"
                 class="flex flex-wrap items-center gap-x-4 gap-y-1 py-3"
               >
-                <StatusDot :tone="a.abnormal ? 'alert' : 'ok'" :label="a.abnormal ? '异常' : '正常'" />
-                <span class="nums-tabular text-body font-semibold text-ink">{{ a.plate }}</span>
+                <StatusDot
+                  :tone="a.isSuspicious ? 'alert' : 'ok'"
+                  :label="a.isSuspicious ? '可疑' : '一般'"
+                />
+                <span class="nums-tabular text-body font-semibold text-ink">{{ a.carNumber }}</span>
                 <span class="text-caption text-ink-soft">{{ describeRecord(a) }}</span>
-                <span v-if="store.isBlacklisted(a.plate)" class="chip">黑名单</span>
+                <span v-if="blacklistedSet.has(a.carNumber)" class="chip">黑名单</span>
                 <span class="ml-auto flex items-center gap-4">
                   <span class="nums-tabular text-caption font-semibold text-ink">
-                    {{ formatFee(a.fee) }}
+                    {{ a.fee === null ? '—' : formatFee(a.fee) }}
                   </span>
                   <span class="w-24 text-right text-micro nums-tabular text-ink-faint">
-                    {{ a.date.slice(5).replace('-', '/') }} {{ recordTime(a) }}
+                    {{ a.logDate.slice(5).replace('-', '/') }} {{ recordTime(a) }}
                   </span>
                 </span>
               </li>
@@ -618,7 +612,9 @@ onMounted(() => {
               <ul class="mt-5 space-y-4">
                 <li v-for="(t, i) in plateTags" :key="t.label">
                   <div class="flex items-center justify-between">
-                    <span class="inline-flex items-center gap-2 text-caption font-medium text-ink-soft">
+                    <span
+                      class="inline-flex items-center gap-2 text-caption font-medium text-ink-soft"
+                    >
                       <span class="size-2 rounded-full" :class="t.colorCls" aria-hidden="true" />
                       {{ t.label }}
                     </span>
@@ -638,7 +634,9 @@ onMounted(() => {
               </ul>
 
               <p class="mt-5 text-micro text-ink-faint">
-                屡次异常 ≥ {{ store.repeatThreshold }} 条异常记录 · 高额欠费为累计费用 ≥ ¥{{ store.highFeeThreshold }}
+                屡次异常 ≥ {{ store.repeatThreshold }} 条可疑记录 · 高额欠费为累计费用 ≥ ¥{{
+                  store.highFeeThreshold
+                }}
               </p>
             </div>
           </AppSurface>
@@ -646,6 +644,12 @@ onMounted(() => {
       </div>
     </template>
 
+    <AppEmpty
+      v-else-if="store.overviewLoading"
+      :icon="ICON.clock"
+      title="数据加载中…"
+      hint="正在从数据库读取概览数据"
+    />
     <AppEmpty
       v-else
       :icon="ICON.clock"

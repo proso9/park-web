@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "park-web",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-08-01",
+  "account_id": "0f1cd53aa348745d6b6189016ed9005b",
+  "assets": {
+    "directory": "./dist",
+    // 路由使用 createWebHistory，未命中的路径回退 index.html
+    "not_found_handling": "single-page-application",
+    // /api 永远走 Worker，不落入静态资源
+    "run_worker_first": ["/api/*"],
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "test",
+      "database_id": "d68c3d72-46fb-4d15-8333-c501781b200f"
+    }
+  ]
+}

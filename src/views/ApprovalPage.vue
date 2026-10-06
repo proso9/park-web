@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useParkStore } from '@/stores/park'
 import {
   AppButton,
@@ -7,10 +7,11 @@ import {
   AppSurface,
   AppEmpty,
   AppDatePicker,
+  AppPagination,
   StatusDot,
 } from '@/components/ui'
 import BlacklistQuickRemove from '@/components/BlacklistQuickRemove.vue'
-import type { AbnormalVehicle, ApprovalStatus } from '@/data/types'
+import type { RecordStatus } from '@/data/types'
 
 const store = useParkStore()
 
@@ -25,53 +26,89 @@ const ICON = {
   undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-4"/>',
   alert: '<circle cx="12" cy="12" r="8.5"/><path d="M12 8v4.5"/><path d="M12 16h.01"/>',
   chevron: '<path d="M6 9l6 6 6-6"/>',
+  x: '<path d="M18 6L6 18"/><path d="M6 6l12 12"/>',
 } as const
 
-// ===== 按车牌聚合，用于审批分组 =====
-interface VehicleGroup {
-  plate: string
-  records: AbnormalVehicle[]
-  status: ApprovalStatus
-}
-
-// ===== 日期范围筛选（AppDatePicker，range 模式） =====
+// ===== 日期范围筛选（AppDatePicker，range 模式）→ /api/plate-groups 参数 =====
 const dateRange = ref<readonly [string, string] | null>(null)
+const groupsPage = ref(1)
 
-const visibleCount = computed(() => groups.value.reduce((sum, g) => sum + g.records.length, 0))
-
-const groups = computed<VehicleGroup[]>(() => {
-  const range = dateRange.value
-  const inRange = (d: string) => !range || (d >= range[0] && d <= range[1])
-  const map = new Map<string, AbnormalVehicle[]>()
-  for (const r of store.sourceRecords) {
-    if (!inRange(r.date)) continue
-    const list = map.get(r.plate)
-    if (list) list.push(r)
-    else map.set(r.plate, [r])
-  }
-  return [...map.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([plate, records]) => ({
-      plate,
-      records,
-      // 审批状态按该车全部记录判断，不随日期筛选变化
-      status: groupStatus(store.sourceRecords.filter((r) => r.plate === plate)),
-    }))
+onMounted(() => {
+  void refresh()
 })
 
-function groupStatus(records: AbnormalVehicle[]): ApprovalStatus {
-  if (records.some((r) => store.statusOf(r) === 'blacklisted')) return 'blacklisted'
-  if (records.every((r) => store.statusOf(r) === 'removed')) return 'removed'
-  return 'pending'
+watch(dateRange, () => {
+  groupsPage.value = 1
+  void refresh()
+})
+
+function refresh() {
+  return store.fetchPlateGroups({
+    page: groupsPage.value,
+    pageSize: 10,
+    from: dateRange.value?.[0],
+    to: dateRange.value?.[1],
+  })
 }
 
-// ===== 操作（可再点恢复） =====
+function onPage(page: number) {
+  groupsPage.value = page
+  void refresh()
+}
+
+const groups = computed(() => store.plateGroups?.groups ?? [])
+const totalGroups = computed(() => store.plateGroups?.total ?? 0)
+const visibleCount = computed(() => groups.value.reduce((sum, g) => sum + g.count, 0))
+const hasFilter = computed(() => dateRange.value !== null)
+
+/**
+ * 车牌级审批状态映射（D1 status）：有已处理（1）记录 → 已处理；
+ * 全部误报（2）→ 误报；否则未处理。
+ */
+function groupStatus(g: { processed: number; misreported: number; count: number }): RecordStatus {
+  if (g.processed > 0) return 1
+  if (g.count > 0 && g.misreported === g.count) return 2
+  return 0
+}
+
+// ===== 操作（可再点恢复）；误报（移除）必须填备注 =====
 function toggleBlacklist(plate: string) {
-  store.toggleBlacklist(plate)
+  void store.toggleBlacklist(plate)
 }
 
-function toggleRemove(plate: string) {
-  store.toggleRemove(plate)
+const removingPlate = ref<string | null>(null)
+const removingRemark = ref('')
+const removingBusy = ref(false)
+const removingError = ref('')
+
+function askRemove(plate: string) {
+  removingPlate.value = plate
+  removingRemark.value = ''
+  removingError.value = ''
+}
+
+function cancelRemove() {
+  removingPlate.value = null
+  removingError.value = ''
+}
+
+const removingInvalid = computed(
+  () => removingPlate.value !== null && removingRemark.value.trim() === '',
+)
+
+async function confirmRemove() {
+  const plate = removingPlate.value
+  if (!plate || removingInvalid.value || removingBusy.value) return
+  removingBusy.value = true
+  removingError.value = ''
+  try {
+    await store.toggleRemove(plate, removingRemark.value.trim())
+    cancelRemove()
+  } catch (err) {
+    removingError.value = err instanceof Error ? err.message : '移除失败'
+  } finally {
+    removingBusy.value = false
+  }
 }
 
 // ===== 记录明细默认收纳，点击展开 =====
@@ -82,28 +119,38 @@ function toggleRecords(plate: string) {
   else expanded.add(plate)
 }
 
-// ===== 黑名单信息导出（CSV） =====
-function exportBlacklist() {
-  const rows = [
-    ['入场时间', '出场时间', '车牌号', '用户需支付费用', '异常'],
-    ...store.blacklistRecords.map((r) => [
-      r.entryTime ?? '-',
-      r.exitTime ?? '-',
-      r.plate,
-      String(r.fee),
-      r.abnormal ? '1' : '0',
-    ]),
-  ]
-  const csv = '\uFEFF' + rows.map((row) => row.join(',')).join('\n')
-  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `黑名单_${new Date().toISOString().slice(0, 10)}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
+// ===== 黑名单信息导出（CSV，按需分页拉取 status=1 的全部记录） =====
+const exporting = ref(false)
+
+async function exportBlacklist() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const rows = await store.fetchBlacklistRecords()
+    const csvRows = [
+      ['入场时间', '出场时间', '车牌号', '用户需支付费用', '可疑'],
+      ...rows.map((r) => [
+        r.entryTime ?? '-',
+        r.exitTime,
+        r.carNumber,
+        r.fee === null ? '-' : String(r.fee),
+        r.isSuspicious ? '1' : '0',
+      ]),
+    ]
+    const csv = '\uFEFF' + csvRows.map((row) => row.join(',')).join('\n')
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `黑名单_${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  } finally {
+    exporting.value = false
+  }
 }
 
 const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
+const timePart = (value: string | null) => (value ? value.slice(11, 16) : '—')
 </script>
 
 <template>
@@ -111,7 +158,7 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
     <header class="mb-8 max-w-xl space-y-2">
       <h1 class="text-title font-bold text-ink">车辆审批</h1>
       <p class="text-body text-ink-soft">
-        对异常车辆逐台审批：加入黑名单（可一键导出黑名单信息）或移除，结果实时同步并本地保留。
+        对异常车辆逐台审批：加入黑名单（标记已处理，可一键导出黑名单信息）或移除（标记误报，需填写备注原因）。
       </p>
     </header>
 
@@ -122,11 +169,11 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
         <div class="mb-4 flex flex-wrap items-center gap-2.5">
           <span class="text-caption font-medium text-ink-muted">审批日期</span>
           <AppDatePicker v-model="dateRange" mode="range" size="small" placeholder="全部日期" />
-          <span v-if="dateRange" class="text-caption text-ink-muted">
-            范围内 {{ visibleCount }} 条记录 · {{ groups.length }} 台车辆
+          <span v-if="hasFilter" class="text-caption text-ink-muted">
+            范围内 {{ visibleCount }} 条记录 · {{ totalGroups }} 台车辆
           </span>
           <AppButton
-            v-if="dateRange"
+            v-if="hasFilter"
             tone="ghost"
             small
             :icon="ICON.undo"
@@ -136,21 +183,29 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
           </AppButton>
         </div>
 
-        <div v-if="groups.length" class="space-y-4">
-          <AppSurface v-for="g in groups" :key="g.plate" tone="strong" as="section" class="p-5">
+        <p v-if="store.plateGroupsError" class="mb-4 text-caption text-status-alert">
+          {{ store.plateGroupsError }}
+        </p>
+
+        <div
+          v-if="groups.length"
+          class="space-y-4 transition-opacity"
+          :class="store.plateGroupsLoading ? 'opacity-50' : 'opacity-100'"
+        >
+          <AppSurface v-for="g in groups" :key="g.carNumber" tone="strong" as="section" class="p-5">
             <!-- 分组头部（整行可点击展开/收起） -->
             <div
               class="flex cursor-pointer select-none flex-wrap items-center gap-3"
               role="button"
               tabindex="0"
-              :aria-expanded="expanded.has(g.plate)"
-              @click="toggleRecords(g.plate)"
-              @keydown.enter.prevent="toggleRecords(g.plate)"
-              @keydown.space.prevent="toggleRecords(g.plate)"
+              :aria-expanded="expanded.has(g.carNumber)"
+              @click="toggleRecords(g.carNumber)"
+              @keydown.enter.prevent="toggleRecords(g.carNumber)"
+              @keydown.space.prevent="toggleRecords(g.carNumber)"
             >
               <span
                 class="flex size-6 shrink-0 items-center justify-center rounded-control text-ink-muted transition-transform duration-300"
-                :class="expanded.has(g.plate) ? 'rotate-180' : ''"
+                :class="expanded.has(g.carNumber) ? 'rotate-180' : ''"
                 aria-hidden="true"
               >
                 <svg
@@ -172,55 +227,92 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
                 stroke-width="2"
                 stroke-linecap="round"
                 stroke-linejoin="round"
-                aria-hidden="true"
                 v-html="ICON.car"
               />
-              <span class="nums-tabular text-heading font-semibold text-ink">{{ g.plate }}</span>
-              <span class="text-caption text-ink-muted">{{ g.records.length }} 条记录</span>
-              <AppStatusChip :status="g.status" />
+              <span class="nums-tabular text-heading font-semibold text-ink">{{
+                g.carNumber
+              }}</span>
+              <span class="text-caption text-ink-muted">{{ g.count }} 条记录</span>
+              <AppStatusChip :status="groupStatus(g)" />
               <div class="ml-auto flex gap-2" @click.stop>
                 <AppButton
-                  :tone="g.status === 'blacklisted' ? 'soft' : 'danger'"
+                  :tone="groupStatus(g) === 1 ? 'soft' : 'danger'"
                   small
-                  :icon="g.status === 'blacklisted' ? ICON.shield : ICON.ban"
-                  :disabled="g.status === 'removed'"
-                  @click="toggleBlacklist(g.plate)"
+                  :icon="groupStatus(g) === 1 ? ICON.shield : ICON.ban"
+                  :disabled="groupStatus(g) === 2"
+                  @click="toggleBlacklist(g.carNumber)"
                 >
-                  {{ g.status === 'blacklisted' ? '移出黑名单' : '加入黑名单' }}
+                  {{ groupStatus(g) === 1 ? '移出黑名单' : '加入黑名单' }}
                 </AppButton>
                 <AppButton
-                  :tone="g.status === 'removed' ? 'primary' : 'ghost'"
+                  :tone="groupStatus(g) === 2 ? 'primary' : 'ghost'"
                   small
-                  :icon="g.status === 'removed' ? ICON.undo : ICON.trash"
-                  @click="toggleRemove(g.plate)"
+                  :icon="groupStatus(g) === 2 ? ICON.undo : ICON.trash"
+                  @click="
+                    groupStatus(g) === 2
+                      ? void store.toggleRemove(g.carNumber)
+                      : askRemove(g.carNumber)
+                  "
                 >
-                  {{ g.status === 'removed' ? '恢复' : '移除' }}
+                  {{ groupStatus(g) === 2 ? '恢复' : '移除' }}
                 </AppButton>
               </div>
             </div>
 
+            <!-- 移除确认：误报必须填写备注原因（落库到 remark） -->
+            <div
+              v-if="removingPlate === g.carNumber"
+              class="mt-4 rounded-control border border-stroke bg-accent-mist/20 p-4"
+            >
+              <label class="block text-caption text-ink-soft">
+                移除原因（误报备注，必填）
+                <textarea
+                  v-model="removingRemark"
+                  rows="2"
+                  placeholder="如：确认为正常缴费，检测误判"
+                  class="mt-1 w-full resize-none rounded-control border border-stroke bg-foam/70 px-3 py-2 text-body text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
+                />
+              </label>
+              <p v-if="removingError" class="mt-2 text-caption text-status-alert">
+                {{ removingError }}
+              </p>
+              <div class="mt-2 flex items-center gap-2">
+                <AppButton
+                  tone="danger"
+                  small
+                  :icon="ICON.trash"
+                  :disabled="removingInvalid || removingBusy"
+                  @click="confirmRemove"
+                >
+                  确认移除
+                </AppButton>
+                <AppButton tone="ghost" small :icon="ICON.x" @click="cancelRemove">取消</AppButton>
+              </div>
+            </div>
+
             <!-- 分组内记录明细（默认收纳，展开时线性滑出并自然推移下方方框） -->
-            <div class="records-wrap" :class="expanded.has(g.plate) ? 'records-open' : ''">
+            <div class="records-wrap" :class="expanded.has(g.carNumber) ? 'records-open' : ''">
               <ul class="min-h-0 divide-y divide-stroke/60 overflow-hidden pt-4">
                 <li
-                  v-for="(r, i) in g.records"
-                  :key="`${r.date}~${i}`"
+                  v-for="r in g.records"
+                  :key="r.id"
                   class="flex flex-wrap items-center gap-x-5 gap-y-1 py-2.5 text-caption"
                 >
-                  <span class="text-ink-muted">{{ r.date }}</span>
-                  <span class="nums-tabular text-ink-soft"
-                    >{{ r.entryTime ?? '—' }} → {{ r.exitTime ?? '—' }}</span
-                  >
-                  <span class="nums-tabular font-medium text-ink">{{ formatFee(r.fee) }}</span>
+                  <span class="text-ink-muted">{{ r.logDate }}</span>
+                  <span class="nums-tabular text-ink-soft">
+                    {{ timePart(r.entryTime) }} → {{ timePart(r.exitTime) }}
+                  </span>
+                  <span class="nums-tabular font-medium text-ink">
+                    {{ r.fee === null ? '—' : formatFee(r.fee) }}
+                  </span>
                   <span class="inline-flex items-center gap-1.5">
-                    <StatusDot :tone="r.abnormal ? 'alert' : 'ok'" />
-                    <span :class="r.abnormal ? 'text-status-alert' : 'text-status-ok'">
-                      {{ r.abnormal ? '异常' : '正常' }}
+                    <StatusDot :tone="r.isSuspicious ? 'alert' : 'ok'" />
+                    <span :class="r.isSuspicious ? 'text-status-alert' : 'text-status-ok'">
+                      {{ r.isSuspicious ? '可疑' : '一般' }}
                     </span>
                   </span>
-                  <span v-if="store.statusOf(r) === 'removed'" class="ml-auto text-ink-faint"
-                    >已移除</span
-                  >
+                  <span v-if="r.status === 2" class="ml-auto text-ink-faint">误报</span>
+                  <span v-else-if="r.status === 1" class="ml-auto text-ink-faint">已处理</span>
                 </li>
               </ul>
             </div>
@@ -228,11 +320,22 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
         </div>
 
         <AppEmpty
-          v-else
+          v-else-if="!store.plateGroupsLoading"
           :icon="ICON.alert"
-          :title="dateRange ? '该日期范围内暂无待审批车辆' : '暂无待审批车辆'"
-          :hint="dateRange ? '试试调整或清空日期筛选' : '所有异常车辆都已处理完毕'"
+          :title="hasFilter ? '该日期范围内暂无待审批车辆' : '暂无待审批车辆'"
+          :hint="hasFilter ? '试试调整或清空日期筛选' : '所有异常车辆都已处理完毕'"
         />
+        <AppEmpty v-else :icon="ICON.alert" title="数据加载中…" hint="正在从数据库读取分组" />
+
+        <AppSurface v-if="groups.length" tone="strong" as="section" class="mt-4">
+          <AppPagination
+            :page="store.plateGroups?.page ?? 1"
+            :page-size="store.plateGroups?.pageSize ?? 10"
+            :total="totalGroups"
+            unit="台车辆"
+            @update="onPage"
+          />
+        </AppSurface>
       </section>
 
       <!-- 黑名单侧栏：跟随视口固定，不随列表滑动；整栏限高内部滚动兜底 -->
@@ -255,7 +358,7 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
             <h2 class="text-heading font-semibold text-ink">黑名单</h2>
           </div>
           <p class="mt-1 text-caption text-ink-muted">
-            共 {{ store.blacklistedPlates.length }} 台车辆
+            共 {{ store.blacklistedPlates.length }} 台车辆（有已处理记录的车牌）
           </p>
 
           <div class="mt-4">
@@ -263,7 +366,7 @@ const formatFee = (fee: number) => `¥${fee.toFixed(2)}`
               tone="primary"
               class="w-full"
               :icon="ICON.download"
-              :disabled="store.blacklistRecords.length === 0"
+              :disabled="store.blacklistedPlates.length === 0 || exporting"
               @click="exportBlacklist"
             >
               导出黑名单信息

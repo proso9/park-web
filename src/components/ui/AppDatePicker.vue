@@ -72,7 +72,11 @@ function parseISO(s: string | null | undefined): Date | null {
 }
 
 function sameDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  )
 }
 
 const todayIso = toISO(new Date())
@@ -129,9 +133,7 @@ function parseDraft(text: string): { start: Date; end: Date } | null {
     return d ? { start: d, end: d } : null
   }
   const tokens = text.match(/\d{4}-\d{1,2}-\d{1,2}/g) ?? []
-  const dates = tokens
-    .map((t) => parseISO(t))
-    .filter((d): d is Date => d !== null)
+  const dates = tokens.map((t) => parseISO(t)).filter((d): d is Date => d !== null)
   if (dates.length === 0) return null
   const first = dates[0] as Date
   const second = dates[1] ?? first
@@ -194,7 +196,10 @@ function openPanel() {
   if (open.value) return
   // 有选中日期时，打开即跳转到对应月份
   const s = sel.value.start
-  if (s && (s.getFullYear() !== view.value.getFullYear() || s.getMonth() !== view.value.getMonth())) {
+  if (
+    s &&
+    (s.getFullYear() !== view.value.getFullYear() || s.getMonth() !== view.value.getMonth())
+  ) {
     view.value = new Date(s.getFullYear(), s.getMonth(), 1)
   }
   open.value = true
@@ -291,7 +296,10 @@ const rangeEnd = computed(() => (props.mode === 'range' ? sel.value.end : null))
 
 function isSelectedCell(c: GridCell): boolean {
   if (props.mode === 'range') {
-    return c.iso === (rangeStart.value && toISO(rangeStart.value)) || c.iso === (rangeEnd.value && toISO(rangeEnd.value))
+    return (
+      c.iso === (rangeStart.value && toISO(rangeStart.value)) ||
+      c.iso === (rangeEnd.value && toISO(rangeEnd.value))
+    )
   }
   return sel.value.start !== null && c.iso === toISO(sel.value.start)
 }
@@ -356,8 +364,10 @@ function cellCls(c: GridCell): string {
   const single = isSingleDay(sel.value.start, sel.value.end)
   // 单日范围（起止同日）显示为圆形深色强调；多日范围内部为方形色条、端点为胶囊半圆
   if (fr === 'band') return single ? 'bg-accent-gradient rounded-full' : 'bg-accent-mist/70'
-  if (fr === 'start') return single ? 'bg-accent-gradient rounded-full' : 'bg-accent-gradient rounded-l-full'
-  if (fr === 'end') return single ? 'bg-accent-gradient rounded-full' : 'bg-accent-gradient rounded-r-full'
+  if (fr === 'start')
+    return single ? 'bg-accent-gradient rounded-full' : 'bg-accent-gradient rounded-l-full'
+  if (fr === 'end')
+    return single ? 'bg-accent-gradient rounded-full' : 'bg-accent-gradient rounded-r-full'
   // 范围模式只选了起点：该起点格显示为圆形深色强调，形成日期范围后变为胶囊端
   if (isRangeStartOnly(c)) return 'bg-accent-gradient rounded-full'
   return ''
@@ -365,7 +375,12 @@ function cellCls(c: GridCell): string {
 
 /** 范围模式是否「仅选起点、尚未定终点」 */
 function isRangeStartOnly(c: GridCell): boolean {
-  return props.mode === 'range' && sel.value.start !== null && sel.value.end === null && c.iso === toISO(sel.value.start)
+  return (
+    props.mode === 'range' &&
+    sel.value.start !== null &&
+    sel.value.end === null &&
+    c.iso === toISO(sel.value.start)
+  )
 }
 
 /** 范围是否单日（起止同一天）：渲染为圆形深色强调，而非浅色色条 */
@@ -718,6 +733,12 @@ onBeforeUnmount(() => {
 // 初始同步
 sel.value = loadSel(model.value)
 draft.value = formatDraft()
+
+/** 输入框聚焦：打开日历面板并标记焦点态（内联多语句会被格式化工具改坏，抽成方法） */
+function onInputFocus() {
+  openPanel()
+  inputFocused.value = true
+}
 </script>
 
 <template>
@@ -732,7 +753,7 @@ draft.value = formatDraft()
       :aria-label="mode === 'range' ? '筛选日期范围' : '选择日期'"
       @input="onInput"
       @keydown="onInputKeydown"
-      @focus="openPanel(); inputFocused = true"
+      @focus="onInputFocus"
       @blur="inputFocused = false"
       :class="inputCls"
     />
@@ -860,7 +881,9 @@ draft.value = formatDraft()
               v-for="(c, i) in grid"
               :key="c.iso"
               role="gridcell"
-              :aria-selected="mode === 'range' ? finalRole(c) !== null || isRangeStartOnly(c) : isSelectedCell(c)"
+              :aria-selected="
+                mode === 'range' ? finalRole(c) !== null || isRangeStartOnly(c) : isSelectedCell(c)
+              "
               class="flex h-9 items-center justify-center"
               :class="cellCls(c)"
             >
@@ -889,7 +912,9 @@ draft.value = formatDraft()
           </div>
 
           <!-- 底部：快捷操作 -->
-          <div class="mt-2 flex items-center justify-between gap-2 border-t border-stroke px-1 pt-2">
+          <div
+            class="mt-2 flex items-center justify-between gap-2 border-t border-stroke px-1 pt-2"
+          >
             <span class="truncate text-micro text-ink-faint">
               <template v-if="mode === 'range'">按住拖拽可框选，或依次点击起止日期</template>
               <template v-else>按 Enter 确认，支持手动输入</template>

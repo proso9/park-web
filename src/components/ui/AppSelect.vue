@@ -32,7 +32,11 @@ function openMenu() {
   const el = trigger.value
   if (!el) return
   const rect = el.getBoundingClientRect()
-  menuStyle.value = { left: `${rect.left}px`, top: `${rect.bottom + 6}px`, width: `${rect.width}px` }
+  menuStyle.value = {
+    left: `${rect.left}px`,
+    top: `${rect.bottom + 6}px`,
+    width: `${rect.width}px`,
+  }
   open.value = true
 }
 
@@ -50,7 +54,11 @@ function pick(value: string) {
 function positionMenu() {
   if (!open.value || !trigger.value) return
   const rect = trigger.value.getBoundingClientRect()
-  menuStyle.value = { left: `${rect.left}px`, top: `${rect.bottom + 6}px`, width: `${rect.width}px` }
+  menuStyle.value = {
+    left: `${rect.left}px`,
+    top: `${rect.bottom + 6}px`,
+    width: `${rect.width}px`,
+  }
 }
 
 function onDocClick(e: MouseEvent) {
@@ -92,7 +100,8 @@ onBeforeUnmount(() => {
       <span
         v-if="label"
         class="pointer-events-none absolute left-3.5 top-2.5 text-caption text-ink-faint"
-      >{{ label }}</span>
+        >{{ label }}</span
+      >
 
       <span class="min-w-0 truncate">{{ selected?.label ?? placeholder }}</span>
 
@@ -113,7 +122,10 @@ onBeforeUnmount(() => {
     <Teleport to="body">
       <Transition name="ddown">
         <div v-if="open" class="fixed z-50" :style="menuStyle">
-          <ul role="listbox" class="max-h-64 overflow-auto rounded-surface border border-stroke bg-foam/95 p-1.5 shadow-lift">
+          <ul
+            role="listbox"
+            class="max-h-64 overflow-auto rounded-surface border border-stroke bg-foam/95 p-1.5 shadow-lift"
+          >
             <li
               v-for="o in options"
               :key="o.value"

@@ -70,18 +70,10 @@ onBeforeUnmount(() => window.removeEventListener('resize', measure))
 </script>
 
 <template>
-  <aside
-    class="fixed inset-y-0 left-0 z-30 flex w-20 flex-col bg-canvas"
-    aria-label="主导航"
-  >
+  <aside class="fixed inset-y-0 left-0 z-30 flex w-20 flex-col bg-canvas" aria-label="主导航">
     <!-- 顶部 logo：品牌图标 -->
     <div class="flex justify-center pt-7">
-      <img
-        src="/icon.svg"
-        alt="Park"
-        class="size-11 select-none"
-        draggable="false"
-      />
+      <img src="/icon.svg" alt="Park" class="size-11 select-none" draggable="false" />
     </div>
 
     <!-- 四个模块垂直居中，间隔留松 -->

@@ -24,12 +24,12 @@ function normalizePlate(raw: string): string {
     .replace(/[^0-9A-Z\u4e00-\u9fff]/g, '')
 }
 
-// 匹配范围是全量记录车牌（移除适用于任何审批状态的车辆），排除缺失占位「-」
-const allPlates = computed<string[]>(() =>
-  [...new Set(store.sourceRecords.map((r) => r.plate))]
-    .filter((p) => p !== '' && p !== '-')
-    .sort((a, b) => a.localeCompare(b)),
-)
+// 匹配范围是数据库全量车牌（/api/plates?all=1，移除适用于任何审批状态的车辆）
+const allPlates = computed<string[]>(() => store.allPlates.filter((p) => p !== '' && p !== '-'))
+
+onMounted(() => {
+  if (store.allPlates.length === 0) void store.fetchAllPlates()
+})
 
 const normIndex = computed<[string, string][]>(() =>
   allPlates.value.map((p) => [p, normalizePlate(p)]),
@@ -222,19 +222,36 @@ function confirmCandidate(row: ImportRow, plate: string) {
   resultMsg.value = ''
 }
 
-// ===== 执行移除 =====
-function runRemove() {
-  if (!selected.value.length) return
-  const affected = store.removePlates(selected.value)
-  const skipped = selected.value.length - affected
-  resultMsg.value =
-    skipped > 0
-      ? `已移除 ${affected} 台 · ${skipped} 台此前已是移除状态`
-      : `已移除 ${affected} 台车辆`
-  selected.value = []
-  importRows.value = []
-  importText.value = ''
-  query.value = ''
+// ===== 执行移除（误报需备注原因，落库 remark） =====
+const removeReason = ref('')
+const removing = ref(false)
+const removeError = ref('')
+
+async function runRemove() {
+  if (!selected.value.length || removing.value) return
+  const reason = removeReason.value.trim()
+  if (!reason) {
+    resultMsg.value = ''
+    return
+  }
+  removing.value = true
+  try {
+    const changed = await store.removePlates(selected.value, reason)
+    resultMsg.value =
+      changed > 0
+        ? `已移除 ${changed} 条记录（${selected.value.length} 台车辆）`
+        : '所选车辆已是移除状态'
+    selected.value = []
+    importRows.value = []
+    importText.value = ''
+    query.value = ''
+    removeReason.value = ''
+  } catch (err) {
+    resultMsg.value = ''
+    removeError.value = err instanceof Error ? err.message : '移除失败'
+  } finally {
+    removing.value = false
+  }
 }
 </script>
 
@@ -255,7 +272,7 @@ function runRemove() {
       <h2 class="text-heading font-semibold text-ink">快速移除</h2>
     </div>
     <p class="mt-1 text-caption text-ink-muted">
-      输入或导入车牌，批量标记为已移除，之后可在列表中逐台恢复。
+      输入或导入车牌，批量标记为误报（移除）并写入备注原因，之后可在列表中逐台恢复。
     </p>
 
     <div class="mt-4 flex gap-2">
@@ -403,16 +420,26 @@ function runRemove() {
     </div>
 
     <div class="mt-4">
+      <label class="block text-caption text-ink-soft">
+        移除原因（误报备注，必填）
+        <textarea
+          v-model="removeReason"
+          rows="2"
+          placeholder="如：确认为正常缴费 / 车辆已报废"
+          class="mt-1 w-full resize-none rounded-control border border-stroke bg-foam/70 px-3 py-2 text-body text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
+        />
+      </label>
       <AppButton
         tone="danger"
-        class="w-full"
+        class="mt-2 w-full"
         :icon="ICON.trash"
-        :disabled="!selected.length"
+        :disabled="!selected.length || !removeReason.trim() || removing"
         @click="runRemove"
       >
         移除所选{{ selected.length ? `（${selected.length} 台）` : '车辆' }}
       </AppButton>
       <p v-if="resultMsg" class="mt-2 text-caption text-status-ok">{{ resultMsg }}</p>
+      <p v-if="removeError" class="mt-2 text-caption text-status-alert">{{ removeError }}</p>
     </div>
 
     <!-- 建议下拉：Teleport 到 body，避开侧栏圆角裁切 -->

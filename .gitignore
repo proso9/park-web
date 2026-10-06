@@ -32,6 +32,10 @@ node_modules/.vite/
 .env.*
 !.env.example
 *.local
+.dev.vars
+
+# ---------- Cloudflare Wrangler 本地状态 ----------
+.wrangler/
 
 # ---------- 测试 ----------
 coverage/
@@ -65,3 +69,4 @@ desktop.ini
 skills-lock.json
 *.csv
 .zcode/
+scripts/seed.sql

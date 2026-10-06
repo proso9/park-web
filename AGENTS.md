@@ -6,7 +6,7 @@
 
 Vue 3 + Vite + Tailwind CSS 4 的前端。现代、极简、温暖、高级的 SaaS。左侧窄轨导航。
 
-视觉语言（配色、字体层级、渐变、圆角、阴影、表面材质）已有完整 token；业务上已落地异常车辆 CSV 解析、审批状态、黑名单等真实流程，概览页已是数据仪表盘，Settings 仍是占位页。
+视觉语言（配色、字体层级、渐变、圆角、阴影、表面材质）已有完整 token；业务上已对接 Cloudflare D1（`anomalies` 异常车辆表）：明细列表（服务端分页 + 多条件筛选 + 行内人工处理）、审批分组（黑名单 / 误报移除）、快速移除面板、概览数据仪表盘、Settings 阈值配置，均已落地。
 
 氛围：现代、极简、温暖、高级的 SaaS。奶油底、桃色光晕、深棕墨色、大面积留白。
 
@@ -30,6 +30,8 @@ Vue 3 + Vite + Tailwind CSS 4 的前端。现代、极简、温暖、高级的 S
 | 样式   | Tailwind CSS **4**（`@tailwindcss/vite`）             | **没有** `tailwind.config.js`。token 写在 CSS `@theme` |
 | 构建   | Vite 8                                              | 路径别名 `@` → `src/`                                 |
 | 语言   | TypeScript 6，`noUncheckedIndexedAccess`             | 数组/对象取值按可能 `undefined` 处理                         |
+| 运行时  | Cloudflare Workers + Static Assets                  | 静态资源 + `/api` 同一 Worker；配置见 `wrangler.jsonc`      |
+| 数据库  | Cloudflare D1（SQLite 兼容），binding 名 `DB`             | 只允许 UPDATE `status` / `remark`（见「数据与状态模型」）        |
 | 格式化  | oxfmt                                               | 无分号、单引号（`.oxfmtrc.json`）                          |
 | Lint | oxlint + eslint（含 `vue/multi-word-component-names`） | 组件文件名必须多词                                         |
 
@@ -38,49 +40,73 @@ Node：`^22.18.0 || >=24.12.0`。包管理：npm。
 ## 常用命令
 
 ```sh
-npm run dev          # 开发。标本页在 /style-guide
+npm run dev          # 前端开发（/api 代理到 127.0.0.1:8787）。标本页在 /style-guide
+npm run dev:api      # Worker 本地开发（wrangler dev，读写本地 D1）
+npm run seed         # 把 scripts/seed-data/*.csv 导入本地 D1（dev 联调数据）
 npm run build        # vue-tsc + vite build
+npm run deploy       # build + wrangler deploy（部署到 Cloudflare）
 npm run type-check   # 仅类型
 npm run lint         # oxlint --fix + eslint --fix
 npm run format       # oxfmt src/
 ```
+
+本地联调开两个终端：先 `npm run seed`（同时会应用 `migrations/`），再 `npm run dev:api` + `npm run dev`。远端首次部署前先 `npx wrangler d1 migrations apply test --remote` 建索引；认证统一走 `wrangler login`，**不要在聊天里传 API token**。线上数据由上游检测工具用 `INSERT OR IGNORE` 写入，本项目不 seed 远端。
 
 改完视觉相关文件后，至少跑 `npx vue-tsc --build` 和 `npx vite build`。生产 CSS 由 LightningCSS 按 `package.json` 的 `browserslist` 压缩；**不要删 browserslist**，否则 `backdrop-filter` 可能只剩 `-webkit-` 前缀，Firefox 没有毛玻璃。
 
 ## 目录
 
 ```
+wrangler.jsonc             # Worker 配置：main=worker/index.ts、assets=dist、D1 binding、SPA 回退
+worker-configuration.d.ts  # wrangler types 生成的运行时类型（Env 含 DB / ASSETS），勿手改
+worker/
+  index.ts                 # fetch 入口：/api 路由分发，其余交给静态资源
+  http.ts                  # json / httpError / readJson 工具
+  db.ts                    # 行映射（snake_case → camelCase）+ 列清单 + 日期范围条件
+  routes/
+    records.ts             # GET /api/records（分页列表）+ PATCH /api/records/:id（只改 status/remark）
+    plates.ts              # 车牌候选 / 全量+黑名单 / 各状态计数 / 车牌级批量状态变更
+    overview.ts            # GET /api/overview：KPI + 每日分布 + 最近动态 + 全量车牌聚合（db.batch 单请求）
+    plateGroups.ts         # GET /api/plate-groups：审批页两段式车牌分组分页
+migrations/
+  0000_schema.sql          # anomalies 建表（IF NOT EXISTS，与上游一致，远端已有表则无操作）
+  0001_indexes.sql         # exit_time / car_number / status 三个索引
+scripts/
+  seed-local.mjs           # CSV → 本地 D1 种子脚本（npm run seed）
+  seed-data/               # 种子 CSV（*.csv 已 gitignore，本地保留）
 src/
   assets/main.css          # 视觉 token 真源（@theme + @utility + @layer components 动效）
   theme/tokens.ts          # 标本页用的色板/圆角/阴影数据，hex 必须与 CSS 同步
+  api/
+    client.ts              # Worker /api 的 fetch 封装（类型化）
   components/
     AppAtmosphere.vue      # 页面级奶油底 + 三团模糊光晕
     AppShell.vue           # 骨架：左栏 + 主区，路由切换时页面左右滑动（方向感知）
     AppSidebar.vue         # 左轨导航：滑动色块指示激活项 + 4 个 RouterLink，数据驱动
-    BlacklistQuickRemove.vue  # 审批页快速移除面板：车牌模糊匹配输入 + 每行导入，批量标记已移除
+    BlacklistQuickRemove.vue  # 审批页快速移除面板：车牌模糊匹配（/api/plates）+ 每行导入，批量标记误报（必填备注）
     ui/
       AppSurface.vue       # 玻璃表面（glass / strong / ghost）
       AppButton.vue        # 通用按钮（primary / ghost / danger 等）
-      AppStatusChip.vue    # 审批状态胶囊
-      AppSelect.vue        # 通用下拉（除日期外：异常/出入场/车牌等选项筛选）
+      AppStatusChip.vue    # 记录状态胶囊（0 未处理 / 1 已处理 / 2 误报）
+      AppSelect.vue        # 通用下拉（除日期外：状态/可疑/入场等选项筛选）
       AppDatePicker.vue    # 全站统一日期选择：输入框唤起悬浮日历，single/range、拖拽框选、今日/禁用、键盘
+      AppPagination.vue    # 轻量分页（服务端分页专用，上一页/下一页 + 总量）
       AppEmpty.vue         # 空状态占位
       StatusDot.vue        # 低饱和状态圆点
       TrendMark.vue        # 趋势箭头与颜色
       index.ts             # 统一导出
   data/
-    types.ts               # 领域类型：AbnormalVehicle、ApprovalStatus
-    parse.ts               # 从 src/data/*.csv 解析异常车辆记录（Vite glob 动态加载）
+    types.ts               # 领域类型：AnomalyRecord、RecordStatus、OverviewData、PlateStat 等（worker 复用）
   views/
     StyleGuide.vue         # `/style-guide` 抽象视觉标本，不是产品页
-    OverviewPage.vue       # 概览仪表盘：问候 + 日期范围筛选 + KPI 卡片 / 每日分布图（柱状 / 折线可切换） / 运营指标四宫格 / 最近动态 / 重点车辆标签统计
-    DetailsPage.vue        # 明细：筛选折叠 + 单日日期选择
-    ApprovalPage.vue       # 审批：范围日期选择 + 状态/黑名单流程 + 黑名单下快速移除面板
-    SettingsPage.vue       # 设置：可调概览页「屡次异常 / 高额欠费」判定阈值（含实时预演）
+    OverviewPage.vue       # 概览仪表盘：/api/overview 驱动 —— 问候 + 日期范围筛选 + KPI 卡片（前后半期趋势） / 每日分布图（柱状 / 折线可切换） / 运营指标四宫格 / 最近动态 / 重点车辆标签统计
+    DetailsPage.vue        # 明细：筛选折叠（车牌/日期范围/状态/可疑/缺入场）+ 服务端分页表格 + 行内处理（状态下拉 + 备注，误报必填原因）
+    ApprovalPage.vue       # 审批：日期范围 + 车牌分组分页（/api/plate-groups）+ 加入黑名单/误报移除/恢复 + 黑名单 CSV 导出 + 快速移除面板
+    SettingsPage.vue       # 设置：可调概览页「屡次异常 / 高额欠费」判定阈值（基于服务端车牌聚合实时预演）
   App.vue                  # 只包一层 AppAtmosphere，内置 AppShell
   router/index.ts
   stores/
-    park.ts                # 业务 store：审批状态 + 黑名单 + 批量移除 + 概览阈值，均 localStorage 持久化
+    park.ts                # 业务 store：明细/概览/分组/车牌数据与状态操作（全部走 api/client），阈值 localStorage（park:settings）
     counter.ts             # 模板残留，勿用
   main.ts                  # 必须 import './assets/main.css'
 index.html                 # 引入 Plus Jakarta Sans
@@ -89,6 +115,17 @@ index.html                 # 引入 Plus Jakarta Sans
 新增页面：`src/views/` + 在 `router/index.ts` 注册。新增可复用 UI：`src/components/ui/`，从 `index.ts` 导出。
 
 页面渲染：`App.vue` 只在最外层包一次 `AppAtmosphere`，`AppShell` 里放 `AppSidebar` + `RouterView`。页面内不要再套 `AppAtmosphere`，否则光晕叠两层。侧栏是窄轨（`w-20`）+ 垂直居中的 icon+中文，不改成传统宽文字菜单。
+
+## 数据与状态模型（必须遵守）
+
+数据全部来自 Cloudflare D1 `anomalies` 表（上游检测工具自动写入），经 Worker `/api` 访问，前端**没有任何内置数据**。
+
+1. **只允许 UPDATE `status` 和 `remark` 两个字段**；`id / log_date / log_file / entry_time / exit_time / car_number / fee / is_suspicious / dedup_key / created_at` 一律只读（`dedup_key` 是上游幂等键，绝不可改删）。Worker 的 PATCH 接口已做白名单，别加字段。
+2. **状态映射**（`RecordStatus`，即 D1 `status`）：`0` 未处理、`1` 已处理（= 旧「黑名单」，`/api/plates?all=1` 的 `blacklisted` 就是 status=1 的车牌）、`2` 误报（= 旧「移除」，**必填备注原因**写入 `remark`）。UI 胶囊用 `<AppStatusChip :status="0|1|2">`。
+3. `entry_time` / `fee` 为 NULL 是正常业务状态，前端显示 `-`/`—`；`created_at` 是 UTC，展示需转 +8；时间都是 `YYYY-MM-DD HH:MM:SS` 文本，排序直接按字符串。
+4. **分页与额度**：列表接口 `pageSize` 上限 50、审批分组上限 20；所有查询参数化绑定（`prepare().bind()`），模糊搜索用 `car_number LIKE ?`；不做高频轮询。单次查询绑定参数 ≤ 100。
+5. 前端 localStorage 只存 `park:settings`（概览阈值）；旧的 `park:approval-state` 已废弃（审批状态在数据库里）。
+6. 本地 dev 用 `npm run seed` 灌种子数据（`scripts/seed-data/*.csv` → 本地 Miniflare SQLite）；**不要 seed 远端**，远端数据只属于上游工具。
 
 ## 视觉语言（必须遵守）
 
@@ -175,7 +212,9 @@ index.html                 # 引入 Plus Jakarta Sans
 - 一律 `<script setup lang="ts">`。props 用 `defineProps` + `withDefaults`。
 - UI 从 `@/components/ui` 导入，不要深层相对路径乱穿。
 - `App.vue` 已经包了 `AppAtmosphere`。页面里不要再套一层，除非明确关掉光晕（`orbs={false}`）。
-- **全站日期选择统一用 `<AppDatePicker>`**（`ApprovalPage` range 选范围、`DetailsPage` single 选单日）。不要再用 `AppSelect` 去列日期选项来当日期筛选。范围/单选的 v-model 值类型见组件导出 `DatePickerValue`。
+- **全站日期选择统一用 `<AppDatePicker>`**（`OverviewPage` / `ApprovalPage` / `DetailsPage` 都是 range 选范围）。不要再用 `AppSelect` 去列日期选项来当日期筛选。范围/单选的 v-model 值类型见组件导出 `DatePickerValue`。
+- 服务端分页列表统一用 `<AppPagination>`（受控组件：父组件传 page/pageSize/total，回抛 update 事件）。
+- 注意：`oxfmt` 会把模板里分号分隔的多语句内联事件（`@focus="a(); b=true"`）改写成 Vue 编译不过的形式，多语句逻辑抽成 `<script setup>` 里的方法再绑定。
 - 不要为了「完整后台」去造顶栏、图表、时间轴、卡片墙。侧栏已有（`AppShell` / `AppSidebar`），别随意把它改成宽文字菜单或加底部头像。
 
 ## Tailwind 4 注意
@@ -195,9 +234,11 @@ index.html                 # 引入 Plus Jakarta Sans
 - 不要把底色改成白 / 冷灰，不要文字用 `#000`。
 - 不要用默认 `shadow-lg shadow-orange-100` 替代 `shadow-surface`。
 - 不要引入 UI 框架（Element Plus、Naive、Vuetify、shadcn 等）覆盖这套材质。
-- 不要提交 `材料/`、`.env`、构建产物。
+- 不要提交 `材料/`、`.env`、`.dev.vars`、构建产物、种子 CSV 与 `scripts/seed.sql`。
 - 不要在没有用户要求时改 `package.json` 依赖大版本。
 - 不要把 `StyleGuide.vue` 改成真实 Dashboard；它是 token 标本。产品页另建 view。
+- 不要绕过 Worker 直连 D1 REST API（运行时一律走 binding），不要在前端拼 SQL。
+- 不要改 `wrangler.jsonc` 的 `database_id` / 账号，不要删除或修改 `dedup_key` 相关约束。
 
 ## 改视觉时的检查清单
 

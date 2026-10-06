@@ -1,38 +1,43 @@
 <script setup lang="ts">
-import type { ApprovalStatus } from '@/data/types'
+import { computed } from 'vue'
+import type { RecordStatus } from '@/data/types'
 
-const LABELS: Record<ApprovalStatus, string> = {
-  pending: '待处理',
-  blacklisted: '已拉黑',
-  removed: '已移除',
-}
+const props = defineProps<{
+  status: RecordStatus
+}>()
 
-withDefaults(
-  defineProps<{
-    status: ApprovalStatus
-  }>(),
-  {},
+// 状态配色沿用低饱和 token：未处理桃色、已处理薄荷青、误报中性淡
+const chipCls = computed(
+  () =>
+    ({
+      0: 'bg-accent-mist text-accent-deep',
+      1: 'bg-status-ok/12 text-status-ok',
+      2: 'bg-accent-mist/60 text-ink-muted',
+    })[props.status],
 )
+
+const dotCls = computed(
+  () =>
+    ({
+      0: 'bg-accent',
+      1: 'bg-status-ok',
+      2: 'bg-ink-faint',
+    })[props.status],
+)
+
+const LABELS: Record<RecordStatus, string> = {
+  0: '未处理',
+  1: '已处理',
+  2: '误报',
+}
 </script>
 
 <template>
   <span
     class="inline-flex items-center gap-1.5 rounded-pill px-2.5 py-1 text-caption font-medium"
-    :class="{
-      pending: 'bg-accent-mist text-accent-deep',
-      blacklisted: 'bg-status-alert/12 text-status-alert',
-      removed: 'bg-accent-mist/60 text-ink-muted',
-    }[status]"
+    :class="chipCls"
   >
-    <span
-      class="size-1.5 rounded-full"
-      :class="{
-        pending: 'bg-accent',
-        blacklisted: 'bg-status-alert',
-        removed: 'bg-ink-faint',
-      }[status]"
-      aria-hidden="true"
-    />
+    <span class="size-1.5 rounded-full" :class="dotCls" aria-hidden="true" />
     {{ LABELS[status] }}
   </span>
 </template>
