@@ -79,7 +79,8 @@ src/
   assets/main.css          # 视觉 token 真源（@theme + @utility + @layer components 动效）
   theme/tokens.ts          # 标本页用的色板/圆角/阴影数据，hex 必须与 CSS 同步
   api/
-    client.ts              # Worker /api 的 fetch 封装（类型化）
+    client.ts              # Worker /api 的 fetch 封装（类型化）；读接口走 SWR，写接口与导出绕过缓存
+    cache.ts               # 前端 SWR 读缓存（内存级）：聚合/全量 TTL 60s、列表 TTL 15s，invalidateApiCache() 全量失效
   components/
     AppAtmosphere.vue      # 页面级奶油底 + 三团模糊光晕
     AppShell.vue           # 骨架：左栏 + 主区，路由切换时页面左右滑动（方向感知）
@@ -107,7 +108,7 @@ src/
   App.vue                  # 只包一层 AppAtmosphere，内置 AppShell
   router/index.ts
   stores/
-    park.ts                # 业务 store：明细/概览/分组/车牌数据与状态操作（全部走 api/client），阈值 localStorage（park:settings）
+    park.ts                # 业务 store：明细/概览/分组/车牌数据与状态操作（全部走 api/client，读请求经 SWR 缓存），阈值 localStorage（park:settings）
     counter.ts             # 模板残留，勿用
   main.ts                  # 必须 import './assets/main.css'
 index.html                 # 引入 Plus Jakarta Sans
@@ -125,8 +126,9 @@ index.html                 # 引入 Plus Jakarta Sans
 2. **状态映射**（`RecordStatus`，即 D1 `status`）：`0` 未处理、`1` 已处理（= 旧「黑名单」，`/api/plates?all=1` 的 `blacklisted` 就是 status=1 的车牌）、`2` 误报（= 旧「移除」，**必填备注原因**写入 `remark`）。UI 胶囊用 `<AppStatusChip :status="0|1|2">`。
 3. `entry_time` / `fee` 为 NULL 是正常业务状态，前端显示 `-`/`—`；`created_at` 是 UTC，展示需转 +8；时间都是 `YYYY-MM-DD HH:MM:SS` 文本，排序直接按字符串。
 4. **分页与额度**：列表接口 `pageSize` 上限 50、审批分组上限 20；所有查询参数化绑定（`prepare().bind()`），模糊搜索用 `car_number LIKE ?`；不做高频轮询。单次查询绑定参数 ≤ 100。**概览页始终携带日期范围**（时间档位：近3天/近7天/近1月，默认近7天），不允许无界全表聚合；审批页动作用待提交队列批量落库，避免高频写。
-5. 前端 localStorage 只存 `park:settings`（概览阈值）；旧的 `park:approval-state` 已废弃（审批状态在数据库里）。
-6. 本地 dev 用 `npm run seed` 灌种子数据（`scripts/seed-data/*.csv` → 本地 Miniflare SQLite）；**不要 seed 远端**，远端数据只属于上游工具。
+5. **读缓存（SWR，`src/api/cache.ts`）**：store 的读请求全部走 SWR——聚合/全量（`/api/overview`、`/api/plates?all=1`）TTL 60s，列表（records、plate-groups）TTL 15s。TTL 内切页零请求；过期先回旧数据渲染，再后台静默重拉（经 `onUpdate` 覆盖 UI）。**任何写操作后必须全量失效**（`refreshAfterMutation` 已封装 `invalidateApiCache()`）；写前判定（`plateCounts`）与黑名单 CSV 导出绕过缓存。store 各数据切片带请求序号守卫，过期重拉的旧响应不会乱序覆盖。
+6. 前端 localStorage 只存 `park:settings`（概览阈值）；旧的 `park:approval-state` 已废弃（审批状态在数据库里）。
+7. 本地 dev 用 `npm run seed` 灌种子数据（`scripts/seed-data/*.csv` → 本地 Miniflare SQLite）；**不要 seed 远端**，远端数据只属于上游工具。
 
 ## 视觉语言（必须遵守）
 

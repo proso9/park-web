@@ -7,6 +7,7 @@ import type {
   RecordsPage,
   RecordsQuery,
 } from '@/data/types'
+import { TTL_AGGREGATE, TTL_LIST, swrGet } from './cache'
 
 /** 统一请求：非 2xx 抛出后端 error 文案 */
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -31,13 +32,80 @@ function recordsSearchParams(query: RecordsQuery): string {
   return params.toString()
 }
 
+function plateGroupsSearchParams(query: {
+  page?: number
+  pageSize?: number
+  from?: string
+  to?: string
+  plate?: string
+}): string {
+  const params = new URLSearchParams()
+  if (query.page) params.set('page', String(query.page))
+  if (query.pageSize) params.set('pageSize', String(query.pageSize))
+  if (query.from) params.set('from', query.from)
+  if (query.to) params.set('to', query.to)
+  if (query.plate) params.set('plate', query.plate)
+  return params.toString()
+}
+
 const JSON_HEADERS = { 'content-type': 'application/json' }
 
-/** Worker /api 客户端（本地 dev 走 vite proxy → wrangler dev，线上同源） */
+/**
+ * Worker /api 客户端（本地 dev 走 vite proxy → wrangler dev，线上同源）。
+ * 读接口走 SWR 缓存（聚合/全量 60s、列表 15s，写操作后全量失效）；
+ * 写前判定与导出绕过缓存，保证拿到的是当下数据。
+ */
 export const api = {
-  /** 明细列表（服务端分页） */
+  /** 明细列表（SWR：15s 内同查询直接回缓存，过期先回旧数据再后台重拉） */
+  swrRecords(query: RecordsQuery, onUpdate?: (page: RecordsPage) => void): Promise<RecordsPage> {
+    const url = `/api/records?${recordsSearchParams(query)}`
+    return swrGet(url, TTL_LIST, () => request<RecordsPage>(url), onUpdate)
+  },
+
+  /** 明细列表（绕过缓存）：黑名单导出需要一次性拉全量的一致快照 */
   records(query: RecordsQuery): Promise<RecordsPage> {
     return request<RecordsPage>(`/api/records?${recordsSearchParams(query)}`)
+  },
+
+  /** 概览聚合（SWR：60s；from/to 可选日期范围） */
+  swrOverview(
+    from?: string,
+    to?: string,
+    onUpdate?: (data: OverviewData) => void,
+  ): Promise<OverviewData> {
+    const params = new URLSearchParams()
+    if (from) params.set('from', from)
+    if (to) params.set('to', to)
+    const qs = params.toString()
+    const url = `/api/overview${qs ? `?${qs}` : ''}`
+    return swrGet(url, TTL_AGGREGATE, () => request<OverviewData>(url), onUpdate)
+  },
+
+  /** 审批页车牌分组（SWR：15s；两段式服务端分页） */
+  swrPlateGroups(
+    query: {
+      page?: number
+      pageSize?: number
+      from?: string
+      to?: string
+      plate?: string
+    },
+    onUpdate?: (page: PlateGroupsPage) => void,
+  ): Promise<PlateGroupsPage> {
+    const url = `/api/plate-groups?${plateGroupsSearchParams(query)}`
+    return swrGet(url, TTL_LIST, () => request<PlateGroupsPage>(url), onUpdate)
+  },
+
+  /** 全量车牌 + 黑名单（status=1）车牌列表（SWR：60s） */
+  swrAllPlates(
+    onUpdate?: (data: { plates: string[]; blacklisted: string[] }) => void,
+  ): Promise<{ plates: string[]; blacklisted: string[] }> {
+    return swrGet(
+      '/api/plates?all=1',
+      TTL_AGGREGATE,
+      () => request<{ plates: string[]; blacklisted: string[] }>('/api/plates?all=1'),
+      onUpdate,
+    )
   },
 
   /** 单条人工处理：只允许 status / remark */
@@ -52,44 +120,7 @@ export const api = {
     })
   },
 
-  /** 概览聚合（from/to 可选日期范围） */
-  overview(from?: string, to?: string): Promise<OverviewData> {
-    const params = new URLSearchParams()
-    if (from) params.set('from', from)
-    if (to) params.set('to', to)
-    const qs = params.toString()
-    return request<OverviewData>(`/api/overview${qs ? `?${qs}` : ''}`)
-  },
-
-  /** 审批页车牌分组（两段式服务端分页） */
-  plateGroups(query: {
-    page?: number
-    pageSize?: number
-    from?: string
-    to?: string
-    plate?: string
-  }): Promise<PlateGroupsPage> {
-    const params = new URLSearchParams()
-    if (query.page) params.set('page', String(query.page))
-    if (query.pageSize) params.set('pageSize', String(query.pageSize))
-    if (query.from) params.set('from', query.from)
-    if (query.to) params.set('to', query.to)
-    if (query.plate) params.set('plate', query.plate)
-    return request<PlateGroupsPage>(`/api/plate-groups?${params.toString()}`)
-  },
-
-  /** 车牌模糊候选（快速移除面板输入建议） */
-  plates(q: string): Promise<{ plates: string[] }> {
-    const params = new URLSearchParams({ q })
-    return request<{ plates: string[] }>(`/api/plates?${params.toString()}`)
-  },
-
-  /** 全量车牌 + 黑名单（status=1）车牌列表 */
-  allPlates(): Promise<{ plates: string[]; blacklisted: string[] }> {
-    return request<{ plates: string[]; blacklisted: string[] }>('/api/plates?all=1')
-  },
-
-  /** 某车牌各状态记录数（判定拉黑/移除方向） */
+  /** 某车牌各状态记录数（写前判定拉黑/移除方向，绕过缓存） */
   plateCounts(plate: string): Promise<PlateCounts> {
     return request<PlateCounts>(`/api/plates/${encodeURIComponent(plate)}/counts`)
   },

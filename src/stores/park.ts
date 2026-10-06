@@ -1,11 +1,13 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/api/client'
+import { invalidateApiCache } from '@/api/cache'
 import type {
   AnomalyRecord,
   OverviewData,
   PlateGroupsPage,
   RecordStatus,
+  RecordsPage,
   RecordsQuery,
 } from '@/data/types'
 
@@ -43,6 +45,7 @@ const REPEAT_LIMIT = 100
 /**
  * 业务 store：数据全部来自 Worker /api（D1 anomalies 表），
  * 仅 status / remark 可写；阈值设置仍 localStorage 持久化。
+ * 读请求走 SWR 缓存（写后全量失效），每个数据切片带请求序号守卫，防乱序响应覆盖。
  */
 export const useParkStore = defineStore('park', () => {
   // 概览页「重点车辆标签」阈值
@@ -67,21 +70,31 @@ export const useParkStore = defineStore('park', () => {
   const recordsLoading = ref(false)
   const recordsError = ref('')
   let lastRecordsQuery: RecordsQuery | null = null
+  let recordsSeq = 0
+
+  function applyRecordsPage(result: RecordsPage) {
+    records.value = result.rows
+    recordsTotal.value = result.total
+    recordsPage.value = result.page
+    recordsPageSize.value = result.pageSize
+  }
 
   async function fetchRecords(query: RecordsQuery) {
     lastRecordsQuery = { ...query }
+    const seq = ++recordsSeq
     recordsLoading.value = true
     recordsError.value = ''
     try {
-      const result = await api.records(query)
-      records.value = result.rows
-      recordsTotal.value = result.total
-      recordsPage.value = result.page
-      recordsPageSize.value = result.pageSize
+      const result = await api.swrRecords(query, (fresh) => {
+        // 后台重拉完成：只应用仍是最新一次查询的结果，防乱序覆盖
+        if (seq === recordsSeq) applyRecordsPage(fresh)
+      })
+      if (seq === recordsSeq) applyRecordsPage(result)
     } catch (err) {
-      recordsError.value = err instanceof Error ? err.message : '加载明细失败'
+      if (seq === recordsSeq)
+        recordsError.value = err instanceof Error ? err.message : '加载明细失败'
     } finally {
-      recordsLoading.value = false
+      if (seq === recordsSeq) recordsLoading.value = false
     }
   }
 
@@ -97,34 +110,49 @@ export const useParkStore = defineStore('park', () => {
   const earlyKpi = ref<OverviewData['kpi'] | null>(null)
   const lateKpi = ref<OverviewData['kpi'] | null>(null)
   let lastOverviewRange: { from?: string; to?: string } = {}
+  let overviewSeq = 0
+
+  /** 应用一次主聚合结果：设置概览 + 按窗口对半分拉两段 KPI（趋势对比） */
+  async function applyOverviewData(data: OverviewData, seq: number) {
+    if (seq !== overviewSeq) return
+    overview.value = data
+    const daily = data.daily
+    if (daily.length >= 2) {
+      const splitAt = Math.floor(daily.length / 2)
+      const earlyDays = daily.slice(0, splitAt)
+      const lateDays = daily.slice(splitAt)
+      const [early, late] = await Promise.all([
+        api.swrOverview(earlyDays[0]!.logDate, earlyDays[earlyDays.length - 1]!.logDate, (d) => {
+          if (seq === overviewSeq) earlyKpi.value = d.kpi
+        }),
+        api.swrOverview(lateDays[0]!.logDate, lateDays[lateDays.length - 1]!.logDate, (d) => {
+          if (seq === overviewSeq) lateKpi.value = d.kpi
+        }),
+      ])
+      if (seq !== overviewSeq) return
+      earlyKpi.value = early.kpi
+      lateKpi.value = late.kpi
+    }
+  }
 
   async function fetchOverview(from?: string, to?: string) {
     lastOverviewRange = { from, to }
+    const seq = ++overviewSeq
     overviewLoading.value = true
     overviewError.value = ''
     earlyKpi.value = null
     lateKpi.value = null
     try {
-      const data = await api.overview(from, to)
-      overview.value = data
-
-      // 日期对半分：分别拉两段 KPI 供趋势对比（人工浏览频率，额度无压力）
-      const daily = data.daily
-      if (daily.length >= 2) {
-        const splitAt = Math.floor(daily.length / 2)
-        const earlyDays = daily.slice(0, splitAt)
-        const lateDays = daily.slice(splitAt)
-        const [early, late] = await Promise.all([
-          api.overview(earlyDays[0]!.logDate, earlyDays[earlyDays.length - 1]!.logDate),
-          api.overview(lateDays[0]!.logDate, lateDays[lateDays.length - 1]!.logDate),
-        ])
-        earlyKpi.value = early.kpi
-        lateKpi.value = late.kpi
-      }
+      const data = await api.swrOverview(from, to, (fresh) => {
+        // 后台重拉完成：静默刷新主图并连带重算两段 KPI（序号守卫防乱序）
+        void applyOverviewData(fresh, seq)
+      })
+      await applyOverviewData(data, seq)
     } catch (err) {
-      overviewError.value = err instanceof Error ? err.message : '加载概览失败'
+      if (seq === overviewSeq)
+        overviewError.value = err instanceof Error ? err.message : '加载概览失败'
     } finally {
-      overviewLoading.value = false
+      if (seq === overviewSeq) overviewLoading.value = false
     }
   }
 
@@ -139,6 +167,7 @@ export const useParkStore = defineStore('park', () => {
   const plateGroupsError = ref('')
   let lastGroupsQuery: { page?: number; pageSize?: number; from?: string; to?: string } | null =
     null
+  let groupsSeq = 0
 
   async function fetchPlateGroups(query: {
     page?: number
@@ -147,14 +176,20 @@ export const useParkStore = defineStore('park', () => {
     to?: string
   }) {
     lastGroupsQuery = { ...query }
+    const seq = ++groupsSeq
     plateGroupsLoading.value = true
     plateGroupsError.value = ''
     try {
-      plateGroups.value = await api.plateGroups(query)
+      const result = await api.swrPlateGroups(query, (fresh) => {
+        // 后台重拉完成：只应用仍是最新一次查询的结果
+        if (seq === groupsSeq) plateGroups.value = fresh
+      })
+      if (seq === groupsSeq) plateGroups.value = result
     } catch (err) {
-      plateGroupsError.value = err instanceof Error ? err.message : '加载分组失败'
+      if (seq === groupsSeq)
+        plateGroupsError.value = err instanceof Error ? err.message : '加载分组失败'
     } finally {
-      plateGroupsLoading.value = false
+      if (seq === groupsSeq) plateGroupsLoading.value = false
     }
   }
 
@@ -165,11 +200,17 @@ export const useParkStore = defineStore('park', () => {
   // ===== 全量车牌 / 黑名单（status=1 的车牌，服务端派生） =====
   const allPlates = ref<string[]>([])
   const blacklistedPlates = ref<string[]>([])
+  let allPlatesSeq = 0
 
   async function fetchAllPlates() {
-    const result = await api.allPlates()
-    allPlates.value = result.plates
-    blacklistedPlates.value = result.blacklisted
+    const seq = ++allPlatesSeq
+    const apply = (result: { plates: string[]; blacklisted: string[] }) => {
+      if (seq !== allPlatesSeq) return
+      allPlates.value = result.plates
+      blacklistedPlates.value = result.blacklisted
+    }
+    const result = await api.swrAllPlates(apply)
+    apply(result)
   }
 
   /** 车牌是否已处理（黑名单） */
@@ -192,8 +233,9 @@ export const useParkStore = defineStore('park', () => {
     }
   }
 
-  /** 变更落库后，把已加载的列表与聚合全部刷一遍（人工操作频率低，额度无压力） */
+  /** 变更落库后：缓存全量失效，再把已加载的视图重拉一遍（此刻必然走网络） */
   async function refreshAfterMutation() {
+    invalidateApiCache()
     await Promise.allSettled([
       refreshRecords(),
       refreshPlateGroups(),
