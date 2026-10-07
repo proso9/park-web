@@ -6,7 +6,7 @@
 
 Vue 3 + Vite + Tailwind CSS 4 的前端。现代、极简、温暖、高级的 SaaS。左侧窄轨导航。
 
-视觉语言（配色、字体层级、渐变、圆角、阴影、表面材质）已有完整 token；业务上已对接 Cloudflare D1（`anomalies` 异常车辆表）：明细列表（服务端分页 + 多条件筛选 + 行内人工处理）、审批分组（黑名单 / 误报移除）、快速移除面板、概览数据仪表盘、Settings 阈值配置，均已落地。
+视觉语言（配色、字体层级、渐变、圆角、阴影、表面材质）已有完整 token；业务上已对接 Cloudflare D1（`anomalies` 异常车辆表）：明细列表（服务端分页 + 多条件筛选 + 行内人工处理）、审批分组（黑名单 / 误报移除）、快速移除面板、概览数据仪表盘、Settings 阈值配置，均已落地。全站有单密码访问门禁：未登录只渲染登录页，全部 `/api` 要求有效会话（见「访问认证」）。
 
 氛围：现代、极简、温暖、高级的 SaaS。奶油底、桃色光晕、深棕墨色、大面积留白。
 
@@ -50,7 +50,7 @@ npm run lint         # oxlint --fix + eslint --fix
 npm run format       # oxfmt src/
 ```
 
-本地联调开两个终端：先 `npm run seed`（同时会应用 `migrations/`），再 `npm run dev:api` + `npm run dev`。远端首次部署前先 `npx wrangler d1 migrations apply test --remote` 建索引；认证统一走 `wrangler login`，**不要在聊天里传 API token**。线上数据由上游检测工具用 `INSERT OR IGNORE` 写入，本项目不 seed 远端。
+本地联调开两个终端：先 `npm run seed`（同时会应用 `migrations/`），再 `npm run dev:api` + `npm run dev`。本地 dev 需要密钥文件：`cp .dev.vars.example .dev.vars` 并填入 `AUTH_PASSWORD` / `AUTH_SECRET` / `TURNSTILE_SECRET`（已 gitignore）。远端首次部署前先 `npx wrangler d1 migrations apply test --remote` 建索引；访问密码、签名密钥与 Turnstile 核销密钥用 `npx wrangler secret put AUTH_PASSWORD` / `AUTH_SECRET` / `TURNSTILE_SECRET` 配置（各执行一次）。认证（Cloudflare 账号）统一走 `wrangler login`，**不要在聊天里传 API token 与线上密码**。线上数据由上游检测工具用 `INSERT OR IGNORE` 写入，本项目不 seed 远端。
 
 改完视觉相关文件后，至少跑 `npx vue-tsc --build` 和 `npx vite build`。生产 CSS 由 LightningCSS 按 `package.json` 的 `browserslist` 压缩；**不要删 browserslist**，否则 `backdrop-filter` 可能只剩 `-webkit-` 前缀，Firefox 没有毛玻璃。
 
@@ -59,8 +59,11 @@ npm run format       # oxfmt src/
 ```
 wrangler.jsonc             # Worker 配置：main=worker/index.ts、assets=dist、D1 binding、SPA 回退
 worker-configuration.d.ts  # wrangler types 生成的运行时类型（Env 含 DB / ASSETS），勿手改
+.dev.vars.example          # 本地 dev 密钥模板（AUTH_PASSWORD / AUTH_SECRET / TURNSTILE_SECRET），复制为 .dev.vars 使用
 worker/
-  index.ts                 # fetch 入口：/api 路由分发，其余交给静态资源
+  index.ts                 # fetch 入口：/api 路由分发（auth 端点 + 会话守卫），其余交给静态资源
+  auth.ts                  # 单密码门禁：登录/探测/登出端点 + 无状态会话签发验签 + Turnstile token 核销（siteverify）
+  env.d.ts                # Env 补充 secrets 声明（AUTH_PASSWORD / AUTH_SECRET / TURNSTILE_SECRET），与生成的全局 Env 合并
   http.ts                  # json / httpError / readJson 工具
   db.ts                    # 行映射（snake_case → camelCase）+ 列清单 + 日期范围条件
   routes/
@@ -79,7 +82,7 @@ src/
   assets/main.css          # 视觉 token 真源（@theme + @utility + @layer components 动效）
   theme/tokens.ts          # 标本页用的色板/圆角/阴影数据，hex 必须与 CSS 同步
   api/
-    client.ts              # Worker /api 的 fetch 封装（类型化）；读接口走 SWR，写接口与导出绕过缓存
+    client.ts              # Worker /api 的 fetch 封装（类型化）；读接口走 SWR，写接口与导出绕过缓存；401 全局回调 setUnauthorizedHandler
     cache.ts               # 前端 SWR 读缓存（内存级）：聚合/全量 TTL 60s、列表 TTL 15s，invalidateApiCache() 全量失效
   components/
     AppAtmosphere.vue      # 页面级奶油底 + 三团模糊光晕
@@ -100,14 +103,16 @@ src/
   data/
     types.ts               # 领域类型：AnomalyRecord、RecordStatus、OverviewData、PlateStat 等（worker 复用）
   views/
+    LoginPage.vue          # 全屏登录页（无侧栏）：AppSurface 卡片 + 密码输入 + Cloudflare Turnstile（dev/生产 sitekey 按 import.meta.env.DEV 切换，失败自动 reset），错误/过期提示，弹簧入场
     StyleGuide.vue         # `/style-guide` 抽象视觉标本，不是产品页
     OverviewPage.vue       # 概览仪表盘：/api/overview 驱动 —— 问候 + 时间档位切换（近3天/近7天/近1月，滑动色块，始终带日期范围请求） + KPI 卡片（前后半期趋势） / 每日分布图（柱状 / 折线可切换） / 运营指标四宫格 / 最近动态 / 重点车辆标签统计（全量聚合，不随档位变化）
     DetailsPage.vue        # 明细：筛选折叠（车牌/日期范围/状态/可疑/缺入场）+ 服务端分页表格 + 行内处理（状态下拉 + 备注，误报必填原因）
     ApprovalPage.vue       # 审批：日期范围 + 车牌分组分页（/api/plate-groups）+ 加入黑名单/误报移除/恢复（动作先入待提交队列，底部粘性提交栏一次性落库，串行执行后统一刷新） + 黑名单 CSV 导出 + 快速移除面板
-    SettingsPage.vue       # 设置：可调概览页「屡次异常 / 高额欠费」判定阈值（基于服务端车牌聚合实时预演）
-  App.vue                  # 只包一层 AppAtmosphere，内置 AppShell
+    SettingsPage.vue       # 设置：可调概览页「屡次异常 / 高额欠费」判定阈值（基于服务端车牌聚合实时预演）+ 退出登录
+  App.vue                  # AppAtmosphere + 认证门：checking 静默占位 / guest 渲染 LoginPage / authed 渲染 AppShell
   router/index.ts
   stores/
+    auth.ts                # 认证 store：check / login / logout，401 全局回调切回登录页，重新登录后失效读缓存
     park.ts                # 业务 store：明细/概览/分组/车牌数据与状态操作（全部走 api/client，读请求经 SWR 缓存），阈值 localStorage（park:settings）
     counter.ts             # 模板残留，勿用
   main.ts                  # 必须 import './assets/main.css'
@@ -129,6 +134,16 @@ index.html                 # 引入 Plus Jakarta Sans
 5. **读缓存（SWR，`src/api/cache.ts`）**：store 的读请求全部走 SWR——聚合/全量（`/api/overview`、`/api/plates?all=1`）TTL 60s，列表（records、plate-groups）TTL 15s。TTL 内切页零请求；过期先回旧数据渲染，再后台静默重拉（经 `onUpdate` 覆盖 UI）。**任何写操作后必须全量失效**（`refreshAfterMutation` 已封装 `invalidateApiCache()`）；写前判定（`plateCounts`）与黑名单 CSV 导出绕过缓存。store 各数据切片带请求序号守卫，过期重拉的旧响应不会乱序覆盖。
 6. 前端 localStorage 只存 `park:settings`（概览阈值）；旧的 `park:approval-state` 已废弃（审批状态在数据库里）。
 7. 本地 dev 用 `npm run seed` 灌种子数据（`scripts/seed-data/*.csv` → 本地 Miniflare SQLite）；**不要 seed 远端**，远端数据只属于上游工具。
+
+## 访问认证（必须遵守）
+
+单密码门禁，无账号体系（`worker/auth.ts` + `src/stores/auth.ts`）：
+
+1. 密码与签名密钥只走 Worker secrets：线上 `npx wrangler secret put AUTH_PASSWORD` / `AUTH_SECRET` / `TURNSTILE_SECRET`，本地 dev 用 `.dev.vars`（模板 `.dev.vars.example`）。未配置时 fail closed：登录接口 500、其余 `/api` 一律 401。
+2. 会话是无状态签名 Cookie `park_session`（`过期时间戳.HMAC-SHA256`，7 天，HttpOnly + SameSite=Lax），不落库、不占 D1 写额度；密码比对走 SHA-256 摘要常量时间比较。
+3. 除 `/api/auth/login|check|logout` 外，所有 `/api` 端点必须在 `isAuthed` 守卫之后；**新增业务接口默认放守卫后面，不要开免认证路径**。
+4. 前端 `App.vue` 认证门三态：`checking` 静默占位 / `guest` 全屏登录页（无侧栏）/ `authed` 正常 AppShell。任何业务 401 经 `setUnauthorizedHandler` 回调切回登录页，重新登录后 `invalidateApiCache()` 全量失效，避免残留上个会话的数据。
+5. 登录接口**不做限速**；防人机 / 防爆破由 Cloudflare Turnstile 承担：LoginPage 显式渲染 widget（action=login），登录请求必须带 token；服务端 `handleLogin` 先调 `siteverify` 核销（10s 超时、fail closed，**不传 remoteip**——解题与请求 IP 可能不同会误拒）再校验密码。**token 一次性**：任何登录失败后前端必须 `turnstile.reset()` 换新 token。**sitekey / secret 必须配套**：vite dev 用官方测试 sitekey（`import.meta.env.DEV` 切换，自动通过），`.dev.vars` 配官方测试 secret；生产构建用真实 sitekey（公开，硬编码在 LoginPage）+ `wrangler secret put` 配置的真实 secret。官方测试 secret 遇真实 token 会返回 `invalid-input-secret`，混用必挂。
 
 ## 视觉语言（必须遵守）
 
@@ -197,7 +212,7 @@ index.html                 # 引入 Plus Jakarta Sans
 
 所有动效统一「**线性弹簧**」：`--ease-spring`（`cubic-bezier(0.34, 1.56, 0.64, 1)`）+ `--duration-spring`（420ms），token 定义在 `src/assets/main.css` 的 `@theme`。组件里用 `ease-spring duration-[var(--duration-spring)]`，原生 CSS 直接用两个 var。不要用默认 `ease-in-out`、不要硬切。
 
-现有四处动画（新增动画沿用同一套曲线与时长）：
+现有五处动画（新增动画沿用同一套曲线与时长）：
 
 | 位置 | 效果 |
 | --- | --- |
@@ -205,6 +220,7 @@ index.html                 # 引入 Plus Jakarta Sans
 | `AppShell.vue` | 路由过渡：`<Transition mode="out-in">`，按导航顺序前进右进 / 后退左进，类名 `page-slide-right/left-*`（定义在 `main.css` 的 `@layer components`） |
 | `DetailsPage.vue` | 筛选折叠：`.filter-collapse`（`grid-template-rows 0fr→1fr`）+ `.open`，箭头随展开旋转 |
 | `OverviewPage.vue` | 概览入场：卡片渐显上浮（`.reveal` / `.reveal-in`，`--d` 做逐级延迟）+ 柱状图 / 标签条生长过渡（height / width 过渡）+ 折线图从左向右擦除展开（clip-path 过渡），均用弹簧 token |
+| `LoginPage.vue` | 登录卡片入场：透明上浮一次（`translate-y` + opacity 过渡，弹簧 token） |
 
 - 路由滑动方向由 `NAV_ORDER` 决定（`AppShell.vue`），新增页面记得加入顺序数组。
 - 折叠类面板统一用 `filter-collapse` 模式，不要用 JS 量高度。
@@ -241,6 +257,7 @@ index.html                 # 引入 Plus Jakarta Sans
 - 不要在没有用户要求时改 `package.json` 依赖大版本。
 - 不要把 `StyleGuide.vue` 改成真实 Dashboard；它是 token 标本。产品页另建 view。
 - 不要绕过 Worker 直连 D1 REST API（运行时一律走 binding），不要在前端拼 SQL。
+- 不要新增绕过会话守卫的 `/api` 路径（免认证的只有 `/api/auth/*` 三个端点），不要把访问密码 / `AUTH_SECRET` / `TURNSTILE_SECRET` 写进代码或提交到仓库（Turnstile sitekey 是公开的，硬编码在 LoginPage 属正常）。
 - 不要改 `wrangler.jsonc` 的 `database_id` / 账号，不要删除或修改 `dedup_key` 相关约束。
 
 ## 改视觉时的检查清单

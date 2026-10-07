@@ -1,0 +1,12 @@
+# Worker 本地开发密钥（wrangler dev 自动读取 .dev.vars；该文件已被 .gitignore 排除）
+# 复制本文件为 .dev.vars 并改成真实值。线上部署用 `npx wrangler secret put <NAME>` 配置。
+AUTH_PASSWORD=本地访问密码
+# 会话签名密钥：任意足够长的随机串，例如
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+AUTH_SECRET=本地会话签名密钥
+# Turnstile 人机验证核销密钥（Dashboard → Turnstile → 你的 widget → Secret Key）。
+# 注意与前端 sitekey 配套：vite dev 用官方测试 sitekey，这里保持官方测试 secret 即可：
+#   1x0000000000000000000000000000000AA
+# 要在本地做「真实 sitekey + 真实 secret」核销：填入你的真实 secret 并访问 8787 的生产
+# 构建（localhost 需在 widget 的 Hostnames 列表里）。线上一律 `npx wrangler secret put`。
+TURNSTILE_SECRET=人机验证核销密钥

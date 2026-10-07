@@ -9,11 +9,22 @@ import type {
 } from '@/data/types'
 import { TTL_AGGREGATE, TTL_LIST, swrGet } from './cache'
 
-/** 统一请求：非 2xx 抛出后端 error 文案 */
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
+/** 401 全局回调：由 auth store 注册，会话中途过期时把界面切回登录页 */
+let unauthorizedHandler: (() => void) | null = null
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  unauthorizedHandler = handler
+}
+
+/**
+ * 统一请求：非 2xx 抛出后端 error 文案。
+ * 401 默认触发全局回调（登录 / 会话探测自身除外，否则探测会引发循环）。
+ */
+async function request<T>(url: string, init?: RequestInit, notify401 = true): Promise<T> {
   const res = await fetch(url, init)
   const data = (await res.json().catch(() => null)) as { error?: string } | null
   if (!res.ok) {
+    if (res.status === 401 && notify401) unauthorizedHandler?.()
     throw new Error(data?.error ?? `请求失败（HTTP ${res.status}）`)
   }
   return data as T
@@ -56,6 +67,25 @@ const JSON_HEADERS = { 'content-type': 'application/json' }
  * 写前判定与导出绕过缓存，保证拿到的是当下数据。
  */
 export const api = {
+  /** 登录（单密码门禁 + Turnstile token）：服务端核销后签发 HttpOnly 会话 Cookie */
+  login(password: string, turnstileToken: string): Promise<{ ok: true }> {
+    return request<{ ok: true }>(
+      '/api/auth/login',
+      { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ password, turnstileToken }) },
+      false,
+    )
+  },
+
+  /** 会话探测：200 有效 / 401 无效（自身不触发全局 401 回调） */
+  checkAuth(): Promise<{ ok: true }> {
+    return request<{ ok: true }>('/api/auth/check', undefined, false)
+  },
+
+  /** 退出登录：服务端清除会话 Cookie */
+  logout(): Promise<{ ok: true }> {
+    return request<{ ok: true }>('/api/auth/logout', { method: 'POST' }, false)
+  },
+
   /** 明细列表（SWR：15s 内同查询直接回缓存，过期先回旧数据再后台重拉） */
   swrRecords(query: RecordsQuery, onUpdate?: (page: RecordsPage) => void): Promise<RecordsPage> {
     const url = `/api/records?${recordsSearchParams(query)}`

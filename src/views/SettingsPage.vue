@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useParkStore } from '@/stores/park'
+import { useAuthStore } from '@/stores/auth'
 import { AppButton, AppSurface } from '@/components/ui'
 
 const store = useParkStore()
@@ -13,6 +14,7 @@ const ICON = {
     '<path d="M3 7a2 2 0 012-2h12a2 2 0 012 2"/><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2v-6a2 2 0 00-2-2H3z"/><path d="M16 14h2"/>',
   reset: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-4"/>',
   check: '<path d="M5 12l4 4L19 6"/>',
+  logout: '<path d="M15 4h3a2 2 0 012 2v12a2 2 0 01-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/>',
 } as const
 
 onMounted(() => {
@@ -62,6 +64,16 @@ function save() {
 function resetDefaults() {
   repeatDraft.value = 2
   feeDraft.value = 500
+}
+
+// ===== 访问认证：单密码会话，退出后回到登录页 =====
+const auth = useAuthStore()
+const loggingOut = ref(false)
+
+async function logout() {
+  if (loggingOut.value) return
+  loggingOut.value = true
+  await auth.logout()
 }
 </script>
 
@@ -224,6 +236,25 @@ function resetDefaults() {
         </AppSurface>
       </aside>
     </div>
+
+    <!-- 访问认证 -->
+    <section class="mt-6">
+      <AppSurface
+        tone="glass"
+        as="section"
+        class="flex flex-wrap items-center justify-between gap-4 p-6"
+      >
+        <div>
+          <h2 class="text-heading font-semibold text-ink">访问认证</h2>
+          <p class="mt-1 text-caption text-ink-muted">
+            单密码会话（7 天有效），退出后需重新输入密码。
+          </p>
+        </div>
+        <AppButton tone="danger" :icon="ICON.logout" :disabled="loggingOut" @click="logout">
+          退出登录
+        </AppButton>
+      </AppSurface>
+    </section>
   </main>
 </template>
 

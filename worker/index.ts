@@ -1,5 +1,6 @@
 import { httpError } from './http'
 
+import { handleCheck, handleLogin, handleLogout, isAuthed } from './auth'
 import { listRecords, updateRecord } from './routes/records'
 import { listPlates, plateCounts, setPlateStatus } from './routes/plates'
 import { overview } from './routes/overview'
@@ -31,6 +32,23 @@ async function route(
 ): Promise<Response> {
   // /api/ 之后的路径段
   const segments = pathname.slice('/api/'.length).split('/').filter(Boolean)
+
+  // 认证端点：无会话时的唯一入口，不做守卫
+  if (segments[0] === 'auth') {
+    if (method === 'POST' && segments.length === 2 && segments[1] === 'login') {
+      return handleLogin(request, env)
+    }
+    if (method === 'GET' && segments.length === 2 && segments[1] === 'check') {
+      return handleCheck(request, env)
+    }
+    if (method === 'POST' && segments.length === 2 && segments[1] === 'logout') {
+      return handleLogout(request)
+    }
+    return httpError(404, '未知接口')
+  }
+
+  // 其余 /api 一律要求有效会话（单密码门禁，见 auth.ts）
+  if (!(await isAuthed(request, env))) return httpError(401, '未登录或会话已过期')
 
   if (segments[0] === 'records') {
     if (method === 'GET' && segments.length === 1) return listRecords(request, env)
