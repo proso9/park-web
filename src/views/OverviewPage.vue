@@ -92,6 +92,14 @@ const lastDate = computed(() => {
 })
 const hasData = computed(() => (kpi.value?.total ?? 0) > 0)
 
+/** 数据应用时间（含后台静默重拉），显示「更新于 HH:mm」 */
+const updatedAtText = computed(() => {
+  const t = store.overviewUpdatedAt
+  if (!t) return ''
+  const d = new Date(t)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+})
+
 // ===== 趋势：窗口内日期对半分，后半段 vs 前半段（两段 KPI 由 store 预取） =====
 interface KpiTrend {
   up: boolean | null
@@ -307,7 +315,7 @@ onMounted(() => {
         <p class="text-body text-ink-soft">
           停车场运行概览 · 当前范围 {{ kpi?.total ?? 0 }} 条记录<template v-if="lastDate">
             · 数据截至 {{ lastDate }}</template
-          >
+          ><template v-if="updatedAtText"> · 更新于 {{ updatedAtText }}</template>
         </p>
       </div>
       <div class="w-full sm:w-auto">

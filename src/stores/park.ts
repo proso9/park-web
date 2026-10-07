@@ -106,6 +106,8 @@ export const useParkStore = defineStore('park', () => {
   const overview = ref<OverviewData | null>(null)
   const overviewLoading = ref(false)
   const overviewError = ref('')
+  // 本次概览数据的应用时间（含后台静默重拉），概览页显示「更新于」
+  const overviewUpdatedAt = ref<number | null>(null)
   // 窗口内日期对半分的两段 KPI（概览页「较前半期」趋势），日期不足两天时为 null
   const earlyKpi = ref<OverviewData['kpi'] | null>(null)
   const lateKpi = ref<OverviewData['kpi'] | null>(null)
@@ -116,6 +118,7 @@ export const useParkStore = defineStore('park', () => {
   async function applyOverviewData(data: OverviewData, seq: number) {
     if (seq !== overviewSeq) return
     overview.value = data
+    overviewUpdatedAt.value = Date.now()
     const daily = data.daily
     if (daily.length >= 2) {
       const splitAt = Math.floor(daily.length / 2)
@@ -353,6 +356,7 @@ export const useParkStore = defineStore('park', () => {
     overview,
     overviewLoading,
     overviewError,
+    overviewUpdatedAt,
     earlyKpi,
     lateKpi,
     fetchOverview,

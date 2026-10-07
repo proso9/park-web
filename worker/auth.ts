@@ -5,7 +5,7 @@
  * 密钥未配置时全部拒绝（fail closed）。不做登录限速，防人机 / 防爆破由 Cloudflare Turnstile
  * 承担：登录必须携带前端 widget 签发的 token，服务端经 siteverify 核销后才校验密码（token 一次性）。
  */
-import { httpError, json, readJson } from './http'
+import { httpError, readJson } from './http'
 
 const SESSION_COOKIE = 'park_session'
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
@@ -92,6 +92,12 @@ function cookieResponse(body: unknown, cookie: string): Response {
   })
 }
 
+/** 签发全新有效期的会话 token（登录 / check 滑动续签共用） */
+async function issueSessionToken(secret: string): Promise<string> {
+  const exp = String(Date.now() + SESSION_TTL_MS)
+  return `${exp}.${base64UrlEncode(await hmacSign(exp, secret))}`
+}
+
 interface TurnstileSiteverifyResult {
   success?: boolean
   action?: string
@@ -149,18 +155,23 @@ export async function handleLogin(request: Request, env: Env): Promise<Response>
     timingSafeEqual(await sha256(password), await sha256(env.AUTH_PASSWORD))
   if (!matched) return httpError(401, '密码不正确')
 
-  const exp = String(Date.now() + SESSION_TTL_MS)
-  const sessionToken = `${exp}.${base64UrlEncode(await hmacSign(exp, env.AUTH_SECRET))}`
+  const sessionToken = await issueSessionToken(env.AUTH_SECRET)
   return cookieResponse(
     { ok: true },
     sessionCookie(request, sessionToken, Math.floor(SESSION_TTL_MS / 1000)),
   )
 }
 
-/** GET /api/auth/check —— 前端启动时探测会话 */
+/** GET /api/auth/check —— 前端启动时探测会话；验证通过则滑动续签（重发满有效期 Cookie） */
 export async function handleCheck(request: Request, env: Env): Promise<Response> {
-  if (await isAuthed(request, env)) return json({ ok: true })
-  return httpError(401, '未登录或会话已过期')
+  if (!env.AUTH_SECRET || !(await isAuthed(request, env))) {
+    return httpError(401, '未登录或会话已过期')
+  }
+  const sessionToken = await issueSessionToken(env.AUTH_SECRET)
+  return cookieResponse(
+    { ok: true },
+    sessionCookie(request, sessionToken, Math.floor(SESSION_TTL_MS / 1000)),
+  )
 }
 
 /** POST /api/auth/logout —— 清除会话 Cookie（无状态会话，服务端无吊销列表） */

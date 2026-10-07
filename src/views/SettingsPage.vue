@@ -14,7 +14,8 @@ const ICON = {
     '<path d="M3 7a2 2 0 012-2h12a2 2 0 012 2"/><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2v-6a2 2 0 00-2-2H3z"/><path d="M16 14h2"/>',
   reset: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-4"/>',
   check: '<path d="M5 12l4 4L19 6"/>',
-  logout: '<path d="M15 4h3a2 2 0 012 2v12a2 2 0 01-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/>',
+  logout:
+    '<path d="M15 4h3a2 2 0 012 2v12a2 2 0 01-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/>',
 } as const
 
 onMounted(() => {

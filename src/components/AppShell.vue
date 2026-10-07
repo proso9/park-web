@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 import AppSidebar from '@/components/AppSidebar.vue'
+import RouteProgress from '@/components/RouteProgress.vue'
 
 const route = useRoute()
 
@@ -28,6 +29,7 @@ watch(
 
 <template>
   <div class="min-h-dvh">
+    <RouteProgress />
     <AppSidebar />
     <!-- overflow-x-clip 只裁水平位移（路由滑动），不会像 overflow-hidden 那样创建滚动容器、破坏页内 position: sticky -->
     <main class="relative ml-20 min-h-dvh overflow-x-clip">

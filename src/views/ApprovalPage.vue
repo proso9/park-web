@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useParkStore } from '@/stores/park'
 import {
   AppButton,
@@ -83,6 +83,54 @@ const PENDING_LABELS: Record<PendingAction, string> = {
 }
 
 const pending = ref(new Map<string, { action: PendingAction; remark?: string }>())
+
+// ===== 队列暂存（sessionStorage）：刷新 / 会话过期切登录页后可恢复，防止已排好的动作丢失 =====
+const QUEUE_KEY = 'park:approval-queue'
+const QUEUE_MAX = 200
+const PENDING_ACTIONS: readonly PendingAction[] = ['blacklist', 'unblacklist', 'remove', 'restore']
+
+function loadQueue(): Map<string, { action: PendingAction; remark?: string }> {
+  try {
+    const raw = sessionStorage.getItem(QUEUE_KEY)
+    if (!raw) return new Map()
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return new Map()
+    const map = new Map<string, { action: PendingAction; remark?: string }>()
+    for (const pair of parsed.slice(0, QUEUE_MAX)) {
+      const plate = Array.isArray(pair) && typeof pair[0] === 'string' ? pair[0] : ''
+      const entry = Array.isArray(pair) ? (pair[1] as { action?: unknown; remark?: unknown }) : null
+      if (!plate || !entry || !PENDING_ACTIONS.includes(entry.action as PendingAction)) continue
+      map.set(plate, {
+        action: entry.action as PendingAction,
+        remark: typeof entry.remark === 'string' ? entry.remark : undefined,
+      })
+    }
+    return map
+  } catch {
+    return new Map()
+  }
+}
+
+pending.value = loadQueue()
+
+watch(pending, (map) => {
+  try {
+    if (map.size === 0) sessionStorage.removeItem(QUEUE_KEY)
+    else sessionStorage.setItem(QUEUE_KEY, JSON.stringify([...map.entries()]))
+  } catch {
+    // 存储不可用（隐私模式等）时队列仅存内存，不影响本页使用
+  }
+})
+
+/** 有未提交动作时关页 / 刷新前让浏览器弹确认 */
+function warnUnsavedActions(event: BeforeUnloadEvent) {
+  if (pending.value.size === 0) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+onMounted(() => window.addEventListener('beforeunload', warnUnsavedActions))
+onBeforeUnmount(() => window.removeEventListener('beforeunload', warnUnsavedActions))
 
 /** 由当前库内状态推导目标动作；同车牌再点同一动作 = 取消，不同动作 = 覆盖 */
 function queueAction(plate: string, action: PendingAction, remark?: string) {

@@ -1,0 +1,4 @@
+# Workers 静态资产缓存头。/assets/* 由 Vite 内容哈希命名，可永久缓存；
+# HTML 与 public/ 下的图标不走此规则，保持默认协商缓存。
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
